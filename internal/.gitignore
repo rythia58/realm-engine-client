@@ -1,0 +1,29 @@
+# Visual Studio / MSBuild
+.vs/
+x64/
+Debug/
+Release/
+*.user
+*.suo
+*.VC.db
+*.VC.VC.opendb
+ipch/
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.exe
+*.dll
+*.iobj
+*.ipdb
+*.tlog
+*.log
+*.idb
+*.pch
+
+# Incremental link / temp folders (name varies)
+il2cpp-d.*/
+
+# Auto-generated per-build handshake secret (build-prod.mjs) — never commit
+src/ui/BuildSecrets.h

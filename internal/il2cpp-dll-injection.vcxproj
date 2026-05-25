@@ -1,0 +1,377 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="defs\version.def" />
+    <ClCompile Include="src\bootstrap\dllmain.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="src\core\logging\helpers.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="src\core\il2cpp\il2cpp-init.cpp" />
+    <ClCompile Include="src\core\il2cpp\pch-il2cpp.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="src\bootstrap\version.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="src\platform\dx11\Dx11.cpp" />
+    <ClCompile Include="src\ui\IpcBridge.cpp" />
+    <ClCompile Include="src\ui\Handshake.cpp" />
+    <ClCompile Include="src\ui\gui\tabs\CameraTAB.cpp" />
+    <ClCompile Include="src\ui\gui\tabs\WorldTAB.cpp" />
+    <ClCompile Include="src\ui\gui\tabs\PlayerTAB.cpp" />
+    <ClCompile Include="src\ui\gui\tabs\TestTAB.cpp" />
+    <ClCompile Include="src\features\movement\dodge\ChatToast.cpp" />
+    <ClCompile Include="src\features\movement\dodge\XDodge.cpp" />
+    <ClCompile Include="src\features\movement\dodge\DangerPlanner.cpp" />
+    <ClCompile Include="src\features\movement\dodge\MovementRuntime.cpp" />
+    <ClCompile Include="src\features\movement\dodge\ProjectileCatalog.cpp" />
+    <ClCompile Include="src\features\movement\dodge\SteerInput.cpp" />
+    <ClCompile Include="src\ui\gui\tabs\CombatTab\CombatTAB.cpp" />
+    <ClCompile Include="src\features\combat\autoaim\FeatAutoAim.cpp" />
+    <ClCompile Include="src\features\combat\autoaim\FeatMagnetAim.cpp" />
+    <ClCompile Include="src\features\loot\BagLooter.cpp" />
+    <ClCompile Include="src\features\combat\autonexus\AutoNexus.cpp" />
+    <ClCompile Include="src\features\combat\ghostHit\GhostHit.cpp" />
+    <ClCompile Include="src\ui\gui\tabs\VisualsTAB.cpp" />
+    <ClCompile Include="src\platform\hooks\DirectX.cpp" />
+    <ClCompile Include="src\platform\hooks\InitHooks.cpp" />
+    <ClCompile Include="src\features\movement\dodge\ProjectileTracking.cpp" />
+    <ClCompile Include="src\features\account\HwidCapture.cpp" />
+    <ClCompile Include="src\features\account\CharSelect.cpp" />
+    <ClCompile Include="src\features\account\CredentialCapture.cpp" />
+    <ClCompile Include="src\features\combat\autoaim\AutoAim.cpp" />
+    <ClCompile Include="src\features\combat\autoability\AutoAbility.cpp" />
+    <ClCompile Include="src\features\movement\dodge\AoeTracking.cpp" />
+    <ClCompile Include="src\features\visuals\skins\character\SkinChanger.cpp" />
+    <ClCompile Include="src\features\visuals\skins\SkinDatabase.cpp" />
+    <ClCompile Include="src\features\movement\speedhack\SpeedHack.cpp" />
+    <ClCompile Include="src\features\misc\FpsSetter.cpp" />
+    <ClCompile Include="src\features\combat\autoaim\ProjNoclip.cpp" />
+    <ClCompile Include="src\features\movement\noclip\Noclip.cpp" />
+    <ClCompile Include="src\features\movement\noclip\NoclipHook.cpp" />
+    <ClCompile Include="vendor\minhook\hook.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="vendor\minhook\buffer.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="vendor\minhook\trampoline.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="vendor\minhook\hde\hde64.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="src\core\config\keybinds.cpp" />
+    <ClCompile Include="src\core\runtime\Il2CppResolver.cpp" />
+    <ClCompile Include="src\core\runtime\RuntimeOffsets.cpp" />
+    <ClCompile Include="src\core\runtime\GameState.cpp" />
+    <ClCompile Include="src\core\runtime\LocalPlayer.cpp" />
+    <ClCompile Include="src\core\runtime\SharedMemory.cpp" />
+    <ClCompile Include="vendor\detours\detours.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="vendor\detours\disasm.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="vendor\detours\modules.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="vendor\imgui\imgui.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="vendor\imgui\imgui_draw.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="vendor\imgui\imgui_impl_dx11.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="vendor\imgui\imgui_impl_win32.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="vendor\imgui\imgui_tables.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="vendor\imgui\imgui_widgets.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="src\bootstrap\main.cpp" />
+    <ClCompile Include="src\core\config\settings.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\game\generated\il2cpp-api-functions.h" />
+    <ClInclude Include="src\game\generated\il2cpp-api-functions-ptr.h" />
+    <ClInclude Include="src\game\generated\il2cpp-functions.h" />
+    <ClInclude Include="src\game\generated\il2cpp-metadata-version.h" />
+    <ClInclude Include="src\game\generated\il2cpp-types-ptr.h" />
+    <ClInclude Include="src\game\generated\il2cpp-types.h" />
+    <ClInclude Include="src\core\logging\helpers.h" />
+    <ClInclude Include="src\core\il2cpp\il2cpp-appdata.h" />
+    <ClInclude Include="src\core\il2cpp\il2cpp-init.h" />
+    <ClInclude Include="src\core\il2cpp\pch-il2cpp.h" />
+    <ClInclude Include="src\bootstrap\version.h" />
+    <ClInclude Include="src\platform\dx11\Dx11.h" />
+    <ClInclude Include="src\ui\IpcBridge.h" />
+    <ClInclude Include="src\ui\Handshake.h" />
+    <ClInclude Include="src\ui\gui\tabs\CameraTAB.h" />
+    <ClInclude Include="src\ui\gui\tabs\WorldTAB.h" />
+    <ClInclude Include="src\ui\gui\tabs\PlayerTAB.h" />
+    <ClInclude Include="src\ui\gui\tabs\TestTAB.h" />
+    <ClInclude Include="src\ui\gui\tabs\CombatTab\CombatTAB.h" />
+    <ClInclude Include="src\ui\gui\tabs\VisualsTAB.h" />
+    <ClInclude Include="src\game\math\W2S.h" />
+    <ClInclude Include="src\platform\hooks\DirectX.h" />
+    <ClInclude Include="src\platform\hooks\InitHooks.h" />
+    <ClInclude Include="src\features\movement\dodge\ProjectileTracking.h" />
+    <ClInclude Include="src\features\account\HwidCapture.h" />
+    <ClInclude Include="src\features\account\CharSelect.h" />
+    <ClInclude Include="src\features\account\CredentialCapture.h" />
+    <ClInclude Include="src\features\combat\autoaim\AutoAim.h" />
+    <ClInclude Include="src\features\combat\autoability\AutoAbility.h" />
+    <ClInclude Include="src\features\movement\dodge\AoeTracking.h" />
+    <ClInclude Include="src\features\visuals\skins\character\SkinChanger.h" />
+    <ClInclude Include="src\features\visuals\skins\SkinDatabase.h" />
+    <ClInclude Include="src\features\movement\speedhack\SpeedHack.h" />
+    <ClInclude Include="src\features\misc\FpsSetter.h" />
+    <ClInclude Include="src\features\movement\dodge\ChatToast.h" />
+    <ClInclude Include="src\features\movement\dodge\XDodge.h" />
+    <ClInclude Include="src\features\movement\dodge\DangerPlanner.h" />
+    <ClInclude Include="src\features\movement\dodge\DodgeGeometry.h" />
+    <ClInclude Include="src\features\movement\dodge\MovementRuntime.h" />
+    <ClInclude Include="src\features\movement\dodge\ProjectileCatalog.h" />
+    <ClInclude Include="src\features\movement\dodge\SteerInput.h" />
+    <ClInclude Include="vendor\minhook\MinHook.h" />
+    <ClInclude Include="src\core\config\keybinds.h" />
+    <ClInclude Include="src\core\runtime\Il2CppResolver.h" />
+    <ClInclude Include="src\core\runtime\RuntimeOffsets.h" />
+    <ClInclude Include="src\core\runtime\GameState.h" />
+    <ClInclude Include="src\core\runtime\LocalPlayer.h" />
+    <ClInclude Include="src\core\runtime\SharedMemory.h" />
+    <ClInclude Include="src\features\combat\autoaim\FeatAutoAim.h" />
+    <ClInclude Include="src\features\combat\autoaim\FeatMagnetAim.h" />
+    <ClInclude Include="src\features\loot\BagLooter.h" />
+    <ClInclude Include="src\features\loot\LootData.h" />
+    <ClInclude Include="src\features\combat\autonexus\AutoNexus.h" />
+    <ClInclude Include="src\features\combat\ghostHit\GhostHit.h" />
+    <ClInclude Include="src\features\combat\autoaim\ProjNoclip.h" />
+    <ClInclude Include="src\features\movement\noclip\Noclip.h" />
+    <ClInclude Include="src\features\movement\noclip\NoclipHook.h" />
+    <ClInclude Include="src\game\symbols\BeebyteName.h" />
+    <ClInclude Include="vendor\detours\detours.h" />
+    <ClInclude Include="vendor\imgui\imconfig.h" />
+    <ClInclude Include="vendor\imgui\imgui.h" />
+    <ClInclude Include="vendor\imgui\imgui_impl_dx11.h" />
+    <ClInclude Include="vendor\imgui\imgui_impl_win32.h" />
+    <ClInclude Include="vendor\imgui\imgui_internal.h" />
+    <ClInclude Include="vendor\imgui\imstb_rectpack.h" />
+    <ClInclude Include="vendor\imgui\imstb_textedit.h" />
+    <ClInclude Include="vendor\imgui\imstb_truetype.h" />
+    <ClInclude Include="src\bootstrap\main.h" />
+    <ClInclude Include="src\core\config\settings.h" />
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <!--<VCProjectVersion>16.0</VCProjectVersion>-->
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{01413F01-BD6F-4BF9-97A2-2E98BA542EE7}</ProjectGuid>
+    <RootNamespace>{%PROJECTNAME}</RootNamespace>
+    <!--<WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>-->
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <!--<PlatformToolset>v142</PlatformToolset>-->
+    <CharacterSet>Unicode</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <!--<PlatformToolset>v142</PlatformToolset>-->
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <!--<PlatformToolset>v142</PlatformToolset>-->
+    <CharacterSet>Unicode</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <!--<PlatformToolset>v142</PlatformToolset>-->
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LinkIncremental>true</LinkIncremental>
+    <TargetName>version</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <LinkIncremental>false</LinkIncremental>
+    <TargetName>version</TargetName>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;_DEBUG;IL2CPPDLL_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch-il2cpp.h</PrecompiledHeaderFile>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalIncludeDirectories>$(ProjectDir)src\bootstrap;$(ProjectDir)src\core\config;$(ProjectDir)src\core\il2cpp;$(ProjectDir)src\core\logging;$(ProjectDir)src\core\runtime;$(ProjectDir)src\platform\dx11;$(ProjectDir)src\platform\hooks;$(ProjectDir)src\game\generated;$(ProjectDir)src\game\symbols;$(ProjectDir)src\game\math;$(ProjectDir)src\features\combat\autoaim;$(ProjectDir)src\features\combat\autoability;$(ProjectDir)src\features\combat\autonexus;$(ProjectDir)src\features\combat\ghostHit;$(ProjectDir)src\features\movement\dodge;$(ProjectDir)src\features\movement\speedhack;$(ProjectDir)src\features\misc;$(ProjectDir)src\features\movement\noclip;$(ProjectDir)src\features\visuals\skins\character;$(ProjectDir)src\features\visuals\skins\pet;$(ProjectDir)src\features\visuals\skins;$(ProjectDir)src\features\account;$(ProjectDir)src\features\loot;$(ProjectDir)src\ui;$(ProjectDir)vendor;$(ProjectDir)vendor\imgui;$(ProjectDir)vendor\minhook;$(ProjectDir)vendor\detours;$(ProjectDir)defs</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableUAC>false</EnableUAC>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;NDEBUG;IL2CPPDLL_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch-il2cpp.h</PrecompiledHeaderFile>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalIncludeDirectories>$(ProjectDir)src\bootstrap;$(ProjectDir)src\core\config;$(ProjectDir)src\core\il2cpp;$(ProjectDir)src\core\logging;$(ProjectDir)src\core\runtime;$(ProjectDir)src\platform\dx11;$(ProjectDir)src\platform\hooks;$(ProjectDir)src\game\generated;$(ProjectDir)src\game\symbols;$(ProjectDir)src\game\math;$(ProjectDir)src\features\combat\autoaim;$(ProjectDir)src\features\combat\autoability;$(ProjectDir)src\features\combat\autonexus;$(ProjectDir)src\features\combat\ghostHit;$(ProjectDir)src\features\movement\dodge;$(ProjectDir)src\features\movement\speedhack;$(ProjectDir)src\features\misc;$(ProjectDir)src\features\movement\noclip;$(ProjectDir)src\features\visuals\skins\character;$(ProjectDir)src\features\visuals\skins\pet;$(ProjectDir)src\features\visuals\skins;$(ProjectDir)src\features\account;$(ProjectDir)src\features\loot;$(ProjectDir)src\ui;$(ProjectDir)vendor;$(ProjectDir)vendor\imgui;$(ProjectDir)vendor\minhook;$(ProjectDir)vendor\detours;$(ProjectDir)defs</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableUAC>false</EnableUAC>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING;_VERSION;IL2CPPDLL_EXPORTS;_WINDOWS;_USRDLL;_ITERATOR_DEBUG_LEVEL=0;_HAS_ITERATOR_DEBUGGING=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <ExceptionHandling>Async</ExceptionHandling>
+      <AdditionalOptions>/EHa %(AdditionalOptions)</AdditionalOptions>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch-il2cpp.h</PrecompiledHeaderFile>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalIncludeDirectories>$(ProjectDir)src\bootstrap;$(ProjectDir)src\core\config;$(ProjectDir)src\core\il2cpp;$(ProjectDir)src\core\logging;$(ProjectDir)src\core\runtime;$(ProjectDir)src\platform\dx11;$(ProjectDir)src\platform\hooks;$(ProjectDir)src\game\generated;$(ProjectDir)src\game\symbols;$(ProjectDir)src\game\math;$(ProjectDir)src\features\combat\autoaim;$(ProjectDir)src\features\combat\autoability;$(ProjectDir)src\features\combat\autonexus;$(ProjectDir)src\features\combat\ghostHit;$(ProjectDir)src\features\movement\dodge;$(ProjectDir)src\features\movement\speedhack;$(ProjectDir)src\features\misc;$(ProjectDir)src\features\movement\noclip;$(ProjectDir)src\features\visuals\skins\character;$(ProjectDir)src\features\visuals\skins\pet;$(ProjectDir)src\features\visuals\skins;$(ProjectDir)src\features\account;$(ProjectDir)src\features\loot;$(ProjectDir)src\ui;$(ProjectDir)vendor;$(ProjectDir)vendor\imgui;$(ProjectDir)vendor\minhook;$(ProjectDir)vendor\detours;$(ProjectDir)defs</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableUAC>false</EnableUAC>
+      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;dxgi.lib;dxguid.lib;kernel32.lib;user32.lib;gdi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ModuleDefinitionFile>defs\version.def</ModuleDefinitionFile>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING;_VERSION;IL2CPPDLL_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <ExceptionHandling>Async</ExceptionHandling>
+      <AdditionalOptions>/EHa %(AdditionalOptions)</AdditionalOptions>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch-il2cpp.h</PrecompiledHeaderFile>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalIncludeDirectories>$(ProjectDir)src\bootstrap;$(ProjectDir)src\core\config;$(ProjectDir)src\core\il2cpp;$(ProjectDir)src\core\logging;$(ProjectDir)src\core\runtime;$(ProjectDir)src\platform\dx11;$(ProjectDir)src\platform\hooks;$(ProjectDir)src\game\generated;$(ProjectDir)src\game\symbols;$(ProjectDir)src\game\math;$(ProjectDir)src\features\combat\autoaim;$(ProjectDir)src\features\combat\autoability;$(ProjectDir)src\features\combat\autonexus;$(ProjectDir)src\features\combat\ghostHit;$(ProjectDir)src\features\movement\dodge;$(ProjectDir)src\features\movement\speedhack;$(ProjectDir)src\features\misc;$(ProjectDir)src\features\movement\noclip;$(ProjectDir)src\features\visuals\skins\character;$(ProjectDir)src\features\visuals\skins\pet;$(ProjectDir)src\features\visuals\skins;$(ProjectDir)src\features\account;$(ProjectDir)src\features\loot;$(ProjectDir)src\ui;$(ProjectDir)vendor;$(ProjectDir)vendor\imgui;$(ProjectDir)vendor\minhook;$(ProjectDir)vendor\detours;$(ProjectDir)defs</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableUAC>false</EnableUAC>
+      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;dxgi.lib;dxguid.lib;kernel32.lib;user32.lib;gdi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ModuleDefinitionFile>defs\version.def</ModuleDefinitionFile>
+    </Link>
+  </ItemDefinitionGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
