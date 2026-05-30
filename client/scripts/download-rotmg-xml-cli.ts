@@ -1,9 +1,10 @@
-/**
- * CLI for extractGameXmls — extracts objects.xml and tiles.xml from the RotMG CDN.
+﻿/**
+ * CLI for extracting RotMG game XML/assets into RealmEngine's data directory.
  *
+ * Examples:
  *   npm run download-game-xml
- *   npm run download-game-xml -- --force   (re-extract even if build hash matches)
- *   npm run download-game-xml -- --dir /custom/path
+ *   npm run download-game-xml -- --force
+ *   npm run download-game-xml -- --dir ./data
  */
 
 import { resolve } from 'path';
@@ -14,9 +15,10 @@ const args = process.argv.slice(2);
 const force = args.includes('--force');
 
 let dataDir = getRealmengineDataDir();
+
 const dirIdx = args.indexOf('--dir');
 if (dirIdx !== -1 && args[dirIdx + 1]) {
-  dataDir = resolve(args[dirIdx + 1]);
+  dataDir = resolve(args[dirIdx + 1]!);
 }
 
 if (force) {
@@ -29,28 +31,20 @@ if (force) {
   }
 }
 
-console.log(`Target directory: ${dataDir}`);
+console.log(`[download-game-xml] Target directory: ${dataDir}`);
 
 const result = await extractGameXmls(dataDir);
 
 if (result.objectsXml) {
-  console.log(`objects.xml    → ${result.objectsXml}`);
+  console.log(`[download-game-xml] objects.xml -> ${result.objectsXml}`);
 } else {
-  console.error('objects.xml: NOT OBTAINED');
-}
-if (result.tilesXml) {
-  console.log(`tiles.xml      → ${result.tilesXml}`);
-} else {
-  console.error('tiles.xml: NOT OBTAINED');
+  console.error('[download-game-xml] objects.xml: NOT OBTAINED');
 }
 
-const spritesheet = resolve(dataDir, 'spritesheet.xml');
-if (existsSync(spritesheet)) {
-  console.log(`spritesheet.xml → ${spritesheet}`);
-}
-const imagesDir = resolve(dataDir, 'images');
-if (existsSync(imagesDir)) {
-  console.log(`images/        → ${imagesDir}`);
+if (result.tilesXml) {
+  console.log(`[download-game-xml] tiles.xml -> ${result.tilesXml}`);
+} else {
+  console.error('[download-game-xml] tiles.xml: NOT OBTAINED');
 }
 
 if (!result.objectsXml || !result.tilesXml) {
