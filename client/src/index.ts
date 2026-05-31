@@ -514,6 +514,9 @@ async function main() {
   setDllFeatureSender((key, value) => internalBridge.setFeature(key, value));
   // #region agent log
   // #endregion
+  // Feed the DLL's authoritative memory defense into StateManager so it can
+  // self-check the wire defense model on each character load (DefenseCheck log).
+  stateManager.setDllDefenseSource(() => internalBridge.getDllDefense());
   if (devServer) {
     devServer.setInternalBridge(internalBridge);
   }

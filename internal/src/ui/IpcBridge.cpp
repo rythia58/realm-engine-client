@@ -795,6 +795,7 @@ static int BuildPlayerJson(char* buf, int bufSize, uint64_t seq, const char* mac
     float posY = LocalPlayer::GetY();
     int32_t hp    = LocalPlayer::GetHP();
     int32_t maxHp = LocalPlayer::GetMaxHP();
+    int32_t def   = LocalPlayer::GetDefense();  // memory-read effective(?) defense — see proxy self-check
 
     if (!LocalPlayer::GetPtr())
         return snprintf(
@@ -807,9 +808,9 @@ static int BuildPlayerJson(char* buf, int bufSize, uint64_t seq, const char* mac
     return snprintf(
         buf, bufSize,
         "{\"type\":\"player\",\"alive\":true,"
-        "\"hp\":%d,\"maxHp\":%d,"
+        "\"hp\":%d,\"maxHp\":%d,\"def\":%d,"
         "\"posX\":%.3f,\"posY\":%.3f,\"seq\":\"%llu\",\"mac\":\"%s\"}",
-        hp, maxHp, (double)posX, (double)posY,
+        hp, maxHp, def, (double)posX, (double)posY,
         static_cast<unsigned long long>(seq), mac
     );
 }
@@ -959,16 +960,19 @@ static void BuildPlayerSigPayload(char* outBuf, int outBufSize)
     float posY = LocalPlayer::GetY();
     int32_t hp    = LocalPlayer::GetHP();
     int32_t maxHp = LocalPlayer::GetMaxHP();
+    int32_t def   = LocalPlayer::GetDefense();
 
     if (!LocalPlayer::GetPtr()) {
         snprintf(outBuf, outBufSize, "alive:false");
         return;
     }
 
+    // `def` is appended LAST so the proxy can stay forward/backward compatible:
+    // older DLLs omit it and the proxy simply doesn't append it to the MAC payload.
     snprintf(
         outBuf, outBufSize,
-        "alive:true|hp:%d|maxHp:%d|posX:%.3f|posY:%.3f",
-        hp, maxHp, (double)posX, (double)posY
+        "alive:true|hp:%d|maxHp:%d|posX:%.3f|posY:%.3f|def:%d",
+        hp, maxHp, (double)posX, (double)posY, def
     );
 }
 

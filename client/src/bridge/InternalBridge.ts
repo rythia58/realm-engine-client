@@ -112,7 +112,12 @@ function playerPayloadFromMessage(msg: DllMessage): string | null {
   const posX = typeof msg.posX === 'number' && Number.isFinite(msg.posX) ? msg.posX : null;
   const posY = typeof msg.posY === 'number' && Number.isFinite(msg.posY) ? msg.posY : null;
   if (hp === null || maxHp === null || posX === null || posY === null) return null;
-  return `alive:true|hp:${hp}|maxHp:${maxHp}|posX:${posX.toFixed(3)}|posY:${posY.toFixed(3)}`;
+  let payload = `alive:true|hp:${hp}|maxHp:${maxHp}|posX:${posX.toFixed(3)}|posY:${posY.toFixed(3)}`;
+  // Defense is appended last and only when the DLL sent it — older DLLs omit it,
+  // and the signed payload must match what the DLL signed (with or without def).
+  const def = typeof msg.def === 'number' && Number.isFinite(msg.def) ? Math.trunc(msg.def) : null;
+  if (def !== null) payload += `|def:${def}`;
+  return payload;
 }
 
 function hotkeyPayloadFromMessage(msg: DllMessage): string | null {
@@ -148,6 +153,9 @@ export class InternalBridge extends EventEmitter {
   private sessionKey: string | null = null;
   private nextClientSeq = 1n;
   private lastDllSeq = 0n;
+
+  /** Latest authoritative defense the DLL read from game memory; null when not alive / not sent. */
+  private lastDllDefense: number | null = null;
 
   // Read buffer for length-prefixed messages
   private readBuf = Buffer.alloc(0);
@@ -586,7 +594,16 @@ export class InternalBridge extends EventEmitter {
       Logger.warn('InternalBridge', 'Dropped unsigned/invalid player message');
       return;
     }
+    // Cache the memory-read defense (authoritative ground truth from the game).
+    // Cleared when the player isn't alive so the proxy self-check re-arms per load.
+    const def = typeof msg.def === 'number' && Number.isFinite(msg.def) ? Math.trunc(msg.def) : null;
+    this.lastDllDefense = msg.alive === true ? def : null;
     this.emit('message', msg);
+  }
+
+  /** Authoritative defense the DLL read from game memory (null if unavailable / not alive). */
+  getDllDefense(): number | null {
+    return this.lastDllDefense;
   }
 
   private handleHotkeyEvent(msg: DllMessage): void {
