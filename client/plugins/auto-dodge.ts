@@ -2,11 +2,12 @@ import type { PluginContext } from '../src/plugins/PluginContext.js';
 import { sendDllFeature } from '../src/bridge/DllFeatureBus.js';
 
 // Maps the dashboard string value to the C++ TestTAB::DodgeMode enum.
-// Off=0, XDodge=1, Rollout=2.
+// Off=0, XDodge=1, RolloutGrid=2, RolloutQuad=3.
 // XDodge uses A* (goal-directed) with BFS fallback (immediate escape),
-// ported from XRebuild/XDriver decompile. Rollout (RE-Sim) does per-input
-// forward simulation against a uniform-grid broad-phase.
-const DODGE_VALUES = ['off', 'xdodge', 'rollout'] as const;
+// ported from XRebuild/XDriver decompile. RE-Sim does per-input forward
+// simulation; the two RE-Sim modes differ only in broad-phase backend
+// (grid vs quadtree) so they can be A/B-compared.
+const DODGE_VALUES = ['off', 'xdodge', 'rollout-grid', 'rollout-quad'] as const;
 
 function modeToIdx(v: string): number {
   const i = DODGE_VALUES.indexOf(v as (typeof DODGE_VALUES)[number]);
@@ -29,7 +30,8 @@ export function register(ctx: PluginContext) {
     options: [
       { label: 'Off', value: 'off' },
       { label: 'RE-Plus', value: 'xdodge' },
-      { label: 'RE-Sim', value: 'rollout' },
+      { label: 'RE-Sim (Grid)', value: 'rollout-grid' },
+      { label: 'RE-Sim (Quadtree)', value: 'rollout-quad' },
     ],
   }, () => flush());
 
@@ -226,8 +228,6 @@ export function register(ctx: PluginContext) {
     (v: string) => sendDllFeature('rolloutWasdYield', v === 'on' ? 1 : 0));
   ctx.registerSetting('rolloutCommitDwell', onOff('[RE-Sim] Commit dwell (no direction flip-flop)'),
     (v: string) => sendDllFeature('rolloutCommitDwell', v === 'on' ? 1 : 0));
-  ctx.registerSetting('rolloutForceBrute', onOff('[RE-Sim] Force brute-force broad-phase (debug)', 'off'),
-    (v: string) => sendDllFeature('rolloutForceBrute', v === 'on' ? 1 : 0));
   ctx.registerSetting('rolloutDrawPath', onOff('[RE-Sim] Draw candidate rollouts (debug)', 'off'),
     (v: string) => sendDllFeature('rolloutDrawPath', v === 'on' ? 1 : 0));
 
@@ -255,7 +255,7 @@ export function register(ctx: PluginContext) {
     sendDllFeature('rolloutHitScale',      ctx.getSetting<number>('rolloutHitScale'));
     sendDllFeature('rolloutIntentWeight',  ctx.getSetting<number>('rolloutIntentWeight'));
     sendDllFeature('rolloutRebuildN',      ctx.getSetting<number>('rolloutRebuildN'));
-    for (const k of ['rolloutAvoidEnemies', 'rolloutWasdYield', 'rolloutCommitDwell', 'rolloutForceBrute', 'rolloutDrawPath'])
+    for (const k of ['rolloutAvoidEnemies', 'rolloutWasdYield', 'rolloutCommitDwell', 'rolloutDrawPath'])
       sendDllFeature(k, ctx.getSetting<string>(k) === 'on' ? 1 : 0);
     // Re-apply the 60fps cap here too. The onEnabledChange / clientConnected
     // handlers were the only places setting targetFrameRate, so if the cap

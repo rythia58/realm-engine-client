@@ -125,8 +125,10 @@ void ApplyDodgeModeWithEnter(DodgeMode nextMode)
 
     // XDodge and Rollout both run from Detour_AppEngineUpdate; only one is
     // enabled at a time (mutual exclusivity enforced here).
+    const bool rollout = (nextMode == DodgeMode::RolloutGrid
+                       || nextMode == DodgeMode::RolloutQuad);
     XDodge::SetEnabled(nextMode == DodgeMode::XDodge);
-    RolloutDodge::SetEnabled(nextMode == DodgeMode::Rollout);
+    RolloutDodge::SetEnabled(rollout);
     if (nextMode == DodgeMode::XDodge) {
         XDodge::OnEnter();
         // Install the AppEngineManager::Update detour that drives the dodge Tick.
@@ -137,7 +139,10 @@ void ApplyDodgeModeWithEnter(DodgeMode nextMode)
         // (autoaim) worked. The detour is gated on XDodge/RolloutDodge
         // IsEnabled(), independent of DangerPlanner steering.
         DangerPlanner::TryInstall();
-    } else if (nextMode == DodgeMode::Rollout) {
+    } else if (rollout) {
+        // Both RE-Sim modes are the same engine; the mode selects the
+        // broad-phase backend (Grid vs Quadtree) for the A/B comparison.
+        RolloutDodge::SetBroadPhase(nextMode == DodgeMode::RolloutQuad ? 3 : 2);
         RolloutDodge::OnEnter();
         DangerPlanner::TryInstall();
     }
@@ -948,7 +953,7 @@ void TestTAB::RenderMovementSection()
     ImGui::Indent(8.f);
 
     int modeIdx = static_cast<int>(g_dodgeMode);
-    const char* modeLabels[] = { "Off", "RE-Plus", "RE-Sim" };
+    const char* modeLabels[] = { "Off", "RE-Plus", "RE-Sim (Grid)", "RE-Sim (Quadtree)" };
     ImGui::SetNextItemWidth(240.f);
     if (ImGui::Combo("Mode##dodgeModeCombo", &modeIdx, modeLabels, IM_ARRAYSIZE(modeLabels))) {
         ApplyDodgeModeWithEnter(static_cast<DodgeMode>(modeIdx));
@@ -960,7 +965,7 @@ void TestTAB::RenderMovementSection()
     if (g_dodgeMode == DodgeMode::XDodge) {
         ImGui::Spacing();
         XDodge::RenderSettings();
-    } else if (g_dodgeMode == DodgeMode::Rollout) {
+    } else if (g_dodgeMode == DodgeMode::RolloutGrid || g_dodgeMode == DodgeMode::RolloutQuad) {
         ImGui::Spacing();
         RolloutDodge::RenderSettings();
     }

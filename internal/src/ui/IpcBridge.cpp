@@ -236,8 +236,8 @@ void ApplyAutoDodgeFeatureState()
 
     int dodgeMode = s_featDodgeMode.load(std::memory_order_relaxed);
     if (dodgeMode < 0) dodgeMode = 0;
-    if (dodgeMode > static_cast<int>(TestTAB::DodgeMode::Rollout))
-        dodgeMode = static_cast<int>(TestTAB::DodgeMode::Rollout);
+    if (dodgeMode > static_cast<int>(TestTAB::DodgeMode::RolloutQuad))
+        dodgeMode = static_cast<int>(TestTAB::DodgeMode::RolloutQuad);
     if (dodgeMode != s_lastMode) {
         s_lastMode = dodgeMode;
         // Routes through TestTAB::ApplyDodgeModeWithEnter → DangerPlanner::TryInstall/SetEnabled.
@@ -493,8 +493,8 @@ int IpcBridge_GetAutoDodgeMode()
 void IpcBridge_SetAutoDodgeMode(int mode)
 {
     if (mode < 0) mode = 0;
-    if (mode > static_cast<int>(TestTAB::DodgeMode::Rollout))
-        mode = static_cast<int>(TestTAB::DodgeMode::Rollout);
+    if (mode > static_cast<int>(TestTAB::DodgeMode::RolloutQuad))
+        mode = static_cast<int>(TestTAB::DodgeMode::RolloutQuad);
     s_featDodgeMode.store(mode, std::memory_order_relaxed);
 }
 
@@ -1356,7 +1356,7 @@ static void DispatchCommand(char* json)
                    strcmp(keyBuf, "xdodgeFutureHorizon") == 0 ||
                    strcmp(keyBuf, "xdodgeFutureStride") == 0) {
             /* no-op: not supported by b0 BFS XDodge */
-        // ── RolloutDodge settings (DodgeMode::Rollout) ───────────────────────
+        // ── RolloutDodge settings (DodgeMode::RolloutGrid / RolloutQuad) ─────
         } else if (strcmp(keyBuf, "rolloutHorizonTicks") == 0) {
             RolloutDodge::SetHorizonTicks(static_cast<float>(atof(valueNorm)));
         } else if (strcmp(keyBuf, "rolloutSampleStepMs") == 0) {
@@ -1369,8 +1369,6 @@ static void DispatchCommand(char* json)
             RolloutDodge::SetIntentWeight(static_cast<float>(atof(valueNorm)));
         } else if (strcmp(keyBuf, "rolloutRebuildN") == 0) {
             RolloutDodge::SetRebuildN(atoi(valueNorm));
-        } else if (strcmp(keyBuf, "rolloutForceBrute") == 0) {
-            RolloutDodge::SetForceBruteForce(atoi(valueNorm) != 0);
         } else if (strcmp(keyBuf, "rolloutAvoidEnemies") == 0) {
             RolloutDodge::SetAvoidEnemiesEnabled(atoi(valueNorm) != 0);
         } else if (strcmp(keyBuf, "rolloutWasdYield") == 0) {
