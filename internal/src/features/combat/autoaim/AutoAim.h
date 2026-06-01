@@ -14,6 +14,7 @@ enum class AimMode : int {
 
 void Install();
 void Uninstall();
+bool IsInstalled();
 
 // Called from D3D Present each frame (throttled ~8ms). Keeps world/dict reads off a background thread.
 void Tick();

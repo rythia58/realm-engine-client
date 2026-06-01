@@ -175,7 +175,13 @@ HRESULT __stdcall dPresent(IDXGISwapChain* __this, UINT SyncInterval, UINT Flags
 	// #region agent log
 	SpeedHack::LogTimingProbe("pre_apply_timescale");
 	// #endregion
-	AutoAim::Tick();         // entity dict walk — uses GameState::GetWorldMgr()
+	// Bootstrap: run AutoAim::Tick() from the render thread until hooks are installed.
+	// Hook installation (DetourTransactionBegin/Commit) suspends all threads — it must
+	// happen here, not from AutoAimLoopThread, to avoid deadlocking on the DX semaphore.
+	// Once g_hooksInstalled is true, AutoAimLoopThread takes over the entity-walk tick.
+	if (!AutoAim::IsInstalled()) {
+		AutoAim::Tick();
+	}
 	BagLooter::Tick();       // throttled bag scan + ext-goal routing
 
 	static std::once_flag init_flag;

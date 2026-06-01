@@ -5,6 +5,7 @@
 #include <Windows.h>
 #include <iostream>
 #include <TlHelp32.h>
+#include <atomic>
 
 #include "il2cpp-appdata.h"
 #include "il2cpp-init.h"
@@ -12,11 +13,13 @@
 #include "InitHooks.h"
 #include "IpcBridge.h"
 #include "DbgFileLog.h"
+#include "AutoAim.h"
 
 HMODULE hModule;
 HANDLE hUnloadEvent;
 HMODULE hGameAssembly = nullptr;
 static HANDLE hSecurityThread = nullptr;
+static std::atomic<bool> s_autoAimThreadStop{false};
 
 static bool IsDebuggerDetected()
 {
@@ -65,6 +68,30 @@ DWORD WINAPI SecurityWatcherThread(LPVOID)
  }
  return 0;
 #endif
+}
+
+// Dedicated AutoAim tick thread — runs GameState+LocalPlayer+AutoAim at ~60 Hz.
+// Kept off the D3D render thread (dPresent) to avoid crashes during nexus
+// transitions when GetWorldMgr() becomes invalid mid-tick.
+DWORD WINAPI AutoAimLoopThread(LPVOID)
+{
+    // Wait until dPresent has installed AutoAim hooks from the render thread.
+    // Hook installation uses DetourTransactionBegin which suspends all threads —
+    // calling it from here would deadlock on the DirectX semaphore.
+    while (!s_autoAimThreadStop.load(std::memory_order_relaxed) && !AutoAim::IsInstalled())
+    {
+        Sleep(50);
+    }
+
+    while (!s_autoAimThreadStop.load(std::memory_order_relaxed))
+    {
+        // dPresent (render thread) calls GameState::Tick(), LocalPlayer::Tick() etc.
+        // Only call AutoAim::Tick() here — hooks are installed, entity walk is safe.
+        AutoAim::Tick();
+        Sleep(16);
+    }
+
+    return 0;
 }
 
 void Run(LPVOID lpParam)
@@ -127,6 +154,17 @@ void Run(LPVOID lpParam)
   LogError("IpcBridge Thread could not be started!");
   DBG_FILE_LOG("[Run] IpcBridgeThread spawn FAILED.");
  }
+
+ // AutoAim loop thread — off the render thread to avoid nexus-transition crashes.
+ s_autoAimThreadStop.store(false, std::memory_order_relaxed);
+ HANDLE hAutoAimThread = CreateThread(nullptr, 0, AutoAimLoopThread, nullptr, 0, nullptr);
+ if (hAutoAimThread) {
+  CloseHandle(hAutoAimThread);
+  DBG_FILE_LOG("[Run] AutoAimLoopThread spawned.");
+ }
+ else {
+  DBG_FILE_LOG("[Run] AutoAimLoopThread spawn FAILED.");
+ }
 }
 
 bool AttachIl2Cpp()
@@ -163,6 +201,8 @@ DWORD WINAPI UnloadWatcherThread(LPVOID lpParam)
   std::cout << "\n[INFO]  Unload signal received, exiting..." << std::endl;
 #endif
 
+  s_autoAimThreadStop.store(true, std::memory_order_relaxed);
+  Sleep(50); // let AutoAimLoopThread exit its current tick before teardown
   DetourUninitialization();
 
 #ifdef _DEBUG

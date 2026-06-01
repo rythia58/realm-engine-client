@@ -1534,6 +1534,11 @@ static void* ResolveMethod(const char* className, const char* methodName, int pa
     return reinterpret_cast<void*>(mi->methodPointer);
 }
 
+bool IsInstalled()
+{
+    return g_hooksInstalled;
+}
+
 void Install()
 {
     if (g_hooksInstalled)
