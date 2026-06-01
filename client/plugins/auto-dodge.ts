@@ -1,5 +1,12 @@
+import { appendFileSync } from 'fs';
 import type { PluginContext } from '../src/plugins/PluginContext.js';
 import { sendDllFeature } from '../src/bridge/DllFeatureBus.js';
+
+const DODGE_LOG = 'C:\\Users\\jacob\\realm-engine-workspaces\\sandbox\\auto-dodge-logs.txt';
+function dlog(msg: string): void {
+  const ts = new Date().toISOString().replace('T', ' ').slice(0, 23);
+  try { appendFileSync(DODGE_LOG, `[${ts}] ${msg}\n`); } catch {}
+}
 
 // Maps the dashboard string value to the C++ TestTAB::DodgeMode enum.
 // Off=0, XDodge=1, Rollout=2.
@@ -16,9 +23,12 @@ function modeToIdx(v: string): number {
 export function register(ctx: PluginContext) {
   ctx.name = 'Auto Dodge';
   ctx.category = 'combat';
+  dlog('register: auto-dodge plugin loaded');
 
   function flush(forceOff = false) {
-    const mode = forceOff ? 0 : modeToIdx(ctx.getSetting<string>('dodgeMode'));
+    const dodgeMode = ctx.getSetting<string>('dodgeMode') ?? 'off';
+    const mode = forceOff ? 0 : modeToIdx(dodgeMode);
+    dlog(`flush: forceOff=${forceOff} mode=${mode} (${forceOff ? 'forced-off' : dodgeMode})`);
     sendDllFeature('autoDodgeMode', mode);
   }
 
@@ -31,7 +41,7 @@ export function register(ctx: PluginContext) {
       { label: 'RE-Plus', value: 'xdodge' },
       { label: 'RE-Sim', value: 'rollout' },
     ],
-  }, () => flush());
+  }, (v: string) => { dlog(`setting dodgeMode → ${v}`); flush(); });
 
   // Cap FPS to 60 while Auto Dodge is on (the fps-setter behaviour, baked
   // in — no separate plugin needed). On → targetFrameRate 60; off →
@@ -49,7 +59,7 @@ export function register(ctx: PluginContext) {
     label: 'Cap FPS to 60 while dodging',
     type: 'boolean',
     value: true,
-  }, () => applyDodgeFps(ctx.enabled));
+  }, (v: boolean) => { dlog(`setting capFps60 → ${v}`); applyDodgeFps(ctx.enabled); });
 
   // ── RE-Plus settings ─────────────────────────────────────────────────────
   ctx.registerSetting('xdodgeHitScale', {
@@ -232,6 +242,12 @@ export function register(ctx: PluginContext) {
     (v: string) => sendDllFeature('rolloutDrawPath', v === 'on' ? 1 : 0));
 
   function syncModeSettings() {
+    const dm  = ctx.getSetting<string>('dodgeMode') ?? 'off';
+    const rn  = ctx.getSetting<number>('xdodgeRebuildN');
+    const hs  = ctx.getSetting<number>('xdodgeHitScale');
+    const rhs = ctx.getSetting<number>('rolloutHitScale');
+    const rhr = ctx.getSetting<number>('rolloutHorizonTicks');
+    dlog(`syncModeSettings: dodgeMode=${dm} xHitScale=${hs} xRebuildN=${rn} rolloutHitScale=${rhs} rolloutHorizon=${rhr} enabled=${ctx.enabled}`);
     sendDllFeature('xdodgeHitScale',       ctx.getSetting<number>('xdodgeHitScale'));
     sendDllFeature('xdodgeRebuildN',       ctx.getSetting<number>('xdodgeRebuildN'));
     sendDllFeature('xdodgePlanStepMs',     ctx.getSetting<number>('xdodgePlanStepMs'));
@@ -266,16 +282,20 @@ export function register(ctx: PluginContext) {
   }
 
   ctx.onEnabledChange((enabled) => {
+    const mode = enabled ? modeToIdx(ctx.getSetting<string>('dodgeMode') ?? 'off') : 0;
+    dlog(`enabledChange: ${enabled} — will send mode=${mode}`);
     flush(!enabled);
     applyDodgeFps(enabled);          // dodge on → 60fps, off → restore
   });
 
   ctx.on('clientConnected', () => {
+    dlog(`clientConnected: flushing mode + syncModeSettings (enabled=${ctx.enabled})`);
     flush();
     syncModeSettings();
     applyDodgeFps(ctx.enabled);
   });
   ctx.on('clientDisconnected', () => {
+    dlog('clientDisconnected: forced off');
     flush(true);
     applyDodgeFps(false);
   });
@@ -292,6 +312,7 @@ export function register(ctx: PluginContext) {
       if (_mapinfoDebounce) clearTimeout(_mapinfoDebounce);
       _mapinfoDebounce = setTimeout(() => {
         _mapinfoDebounce = null;
+        dlog(`MAPINFO: map resync triggered (enabled=${ctx.enabled})`);
         // syncModeSettings touches the DLL bridge; if the pipe is mid-
         // reconnect any throw here would otherwise reach Node as an
         // unhandled error in a setTimeout callback (= process crash).

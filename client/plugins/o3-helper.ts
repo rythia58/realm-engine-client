@@ -1,5 +1,14 @@
 import type { PluginContext } from '../src/plugins/PluginContext.js';
 import type { ClientConnection } from '../src/proxy/ClientConnection.js';
+import { sendDllFeature } from '../src/bridge/DllFeatureBus.js';
+import { appendFileSync } from 'fs';
+
+const O3_LOG_PATH = 'C:\\Users\\jacob\\realm-engine-workspaces\\sandbox\\o3-debug.txt';
+
+function flog(msg: string): void {
+  const ts = new Date().toISOString().replace('T', ' ').slice(0, 23);
+  try { appendFileSync(O3_LOG_PATH, `[${ts}] ${msg}\n`); } catch {}
+}
 
 /**
  * O3 Helper — faithful port of RealmStock MultiTool's Class87 (O3 Helper).
@@ -223,11 +232,15 @@ export function register(ctx: PluginContext) {
     state.dammahId    = -1;
     state.shieldActive = false;
     state.dammahPhase  = false;
+    sendDllFeature('o3ShieldActive', false);
 
     updateStatusDisplay(state);
 
     if (state.inSanctuary) {
       ctx.log('Entered Oryx\'s Sanctuary — O3 tracking active');
+      flog('MAPINFO: entered Sanctuary');
+    } else {
+      flog(`MAPINFO: map="${name}" — tracking reset`);
     }
   });
 
@@ -263,17 +276,16 @@ export function register(ctx: PluginContext) {
       if (objectType === O3_BOSS_TYPE) {
         state.o3Id = objectId;
         checkShield(stats, state);
-        // MultiTool's loop breaks here — but we continue to process remaining
-        // entities in the same packet for completeness.
+        flog(`UPDATE: O3 boss spotted objectId=${objectId} shieldActive=${state.shieldActive}`);
         continue;
       }
 
       // Coins and Dammah are only recorded before O3 appears (int_5 == -1).
       if (state.o3Id === -1) {
-        if      (objectType === O3_COIN1_TYPE)  state.coin1Id  = objectId;
-        else if (objectType === O3_COIN2_TYPE)  state.coin2Id  = objectId;
-        else if (objectType === O3_COIN3_TYPE)  state.coin3Id  = objectId;
-        else if (objectType === O3_DAMMAH_TYPE) state.dammahId = objectId;
+        if      (objectType === O3_COIN1_TYPE)  { state.coin1Id  = objectId; flog(`UPDATE: coin1 id=${objectId}`); }
+        else if (objectType === O3_COIN2_TYPE)  { state.coin2Id  = objectId; flog(`UPDATE: coin2 id=${objectId}`); }
+        else if (objectType === O3_COIN3_TYPE)  { state.coin3Id  = objectId; flog(`UPDATE: coin3 id=${objectId}`); }
+        else if (objectType === O3_DAMMAH_TYPE) { state.dammahId = objectId; flog(`UPDATE: Dammah id=${objectId}`); }
       }
     }
 
@@ -305,6 +317,8 @@ export function register(ctx: PluginContext) {
       checkShield(stats, state);
       if (state.shieldActive !== prevShield) {
         ctx.log(`O3 shield: ${state.shieldActive ? 'UP' : 'DOWN'}`);
+        flog(`NEWTICK: shield changed -> ${state.shieldActive ? 'UP' : 'DOWN'} (sending to DLL)`);
+        sendDllFeature('o3ShieldActive', state.shieldActive);
         updateStatusDisplay(state);
       }
       break;
@@ -330,6 +344,7 @@ export function register(ctx: PluginContext) {
       state.dammahPhase = DAMMAH_LINES.has(cleanText);
       if (state.dammahPhase !== prev) {
         ctx.log(`Dammah phase: ${state.dammahPhase ? 'ACTIVE' : 'ended'}`);
+        flog(`TEXT: Dammah phase -> ${state.dammahPhase ? 'ACTIVE' : 'ended'} line="${cleanText}"`);
         updateStatusDisplay(state);
       }
     }
@@ -347,6 +362,10 @@ export function register(ctx: PluginContext) {
     const targetId = packet.data.targetId as number;
 
     if (!canHit(targetId, state)) {
+      const reason = (state.shieldActive && targetId === state.o3Id) ? 'shield'
+        : (targetId === state.coin1Id || targetId === state.coin2Id || targetId === state.coin3Id) ? 'coin'
+        : 'dammah';
+      flog(`ENEMYHIT blocked: targetId=${targetId} reason=${reason} shield=${state.shieldActive} dammahPhase=${state.dammahPhase}`);
       packet.send = false;
     }
   });
@@ -368,7 +387,9 @@ export function register(ctx: PluginContext) {
     ];
     ctx.sendNotification(client, 'O3 Helper', lines.join(' | '));
     ctx.log(`O3 state: ${JSON.stringify(state)}`);
+    flog(`/o3 command: ${JSON.stringify(state)}`);
   });
 
   ctx.log('Loaded — blocks ENEMYHIT during O3 shield / coins / Dammah phases. /o3 to inspect state');
+  flog(`--- O3 Helper loaded (logging to this file) ---`);
 }

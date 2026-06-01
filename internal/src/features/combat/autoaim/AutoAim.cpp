@@ -1,6 +1,7 @@
 #include "pch-il2cpp.h"
 
 #include "AutoAim.h"
+#include "IpcBridge.h"
 #include "GameState.h"
 #include "gui/tabs/TestTAB.h"
 #include "ProjectileTracking.h"
@@ -769,6 +770,11 @@ static bool SehReadEnemyCandidate(
             }
             if (IsIgnoredEnemyObjectType(objType)) {
                 if (doLog) AimLog("  -> REJECTED: ignored objType");
+                return false;
+            }
+            // O3 shield: skip Oryx 3 (type 45363) while TS-side reports shield active.
+            if (objType == 45363 && IpcBridge_GetO3ShieldActive()) {
+                if (doLog) AimLog("  -> REJECTED: O3 shield active");
                 return false;
             }
         }

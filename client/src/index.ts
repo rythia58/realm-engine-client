@@ -210,7 +210,7 @@ async function main() {
       const binPath = resolve(assetsDir, 'internal.bin');
       // APP_ROOT = bot-client dir (Electron sets REALM_ENGINE_APP_ROOT). ROOT may be resourcesPath in prod,
       // so never use ROOT/.. for repo siblings — that misses LFG/DebugInternal next to LFG/bot-client.
-      const devDll = resolve(APP_ROOT, '..', 'DebugInternal', 'x64', 'Release', 'version.dll');
+      const devDll = resolve(APP_ROOT, '..', 'internal', 'x64', 'Debug', 'version.dll');
 
       const envDllResolved = resolveInternalVersionDllPath(
         String(process.env.REALM_ENGINE_INTERNAL_VERSION_DLL || ''),
@@ -303,7 +303,7 @@ async function main() {
       } catch {
         wSz = null;
       }
-      const logDevDll = resolve(APP_ROOT, '..', 'DebugInternal', 'x64', 'Release', 'version.dll');
+      const logDevDll = resolve(APP_ROOT, '..', 'internal', 'x64', 'Debug', 'version.dll');
       const logBinPath = resolve(assetsDir, 'internal.bin');
       let binMtimeProbe: number | null = null;
       let devMtimeProbe: number | null = null;
@@ -418,10 +418,6 @@ async function main() {
     () => ({ worldState, projectileTracker }),
   );
 
-  // Admin dev: gate always active, all plans granted, admin mode on — no sign-in required.
-  pluginManager.loginGateActive = true;
-  pluginManager.adminMode = true;
-  pluginManager.setActivePlans(['free', 'dodge', 'developer', 'pro', 'elite', 'combined']);
 
   // 6. Dev dashboard FIRST — Electron only waits ~10s for http://localhost:3000; metadata fetch can be slow
   let devServer: DevServer | undefined;
@@ -508,7 +504,7 @@ async function main() {
   // 9. Internal DLL bridge (named pipe to injected DLL). Node.js is the pipe
   //    server; the injected DLL connects to us. listen() starts the server once
   //    at startup and it stays open — no reconnect hammering needed.
-  const internalBridge = new InternalBridge('admin-dev');
+  const internalBridge = new InternalBridge('');
   // #region agent log
   // #endregion
   setDllFeatureSender((key, value) => internalBridge.setFeature(key, value));

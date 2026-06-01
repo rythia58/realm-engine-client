@@ -513,6 +513,8 @@ export class InternalBridge extends EventEmitter {
       this.disconnect();
       return;
     }
+    const dllBuild = Number(msg.build ?? 0);
+    Logger.log('InternalBridge', `DLL build: ${dllBuild}`);
 
     // Compute HMAC(challenge + userId, key) — userId must match DLL IsAsciiIdSafe rules
     const bid = this.bridgeAuthUserId();

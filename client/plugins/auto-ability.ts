@@ -118,6 +118,9 @@ export function register(ctx: PluginContext) {
     if (!client?.connected || !client.objectId) return;
     if (safeZoneEnabled && isSafeZone(client)) return;
 
+    const o3Suppress = ctx.getPluginData<(c: ClientConnection) => boolean>('o3-helper', 'shouldSuppressAbility');
+    if (o3Suppress?.(client)) return;
+
     const pd = client.playerData;
     if (EXCLUDED_CLASSES.has(pd.classType)) return;
     if (pd.inventory[1] === -1) return;

@@ -63,6 +63,9 @@ export class PluginContext {
   /** Callback set by PluginManager to broadcast structured data to dashboard clients. */
   public onBroadcastData: ((pluginId: string, type: string, data: any) => void) | null = null;
 
+  /** Callback set by PluginManager to read runtime data from another plugin. */
+  public onGetPluginData: ((pluginId: string, key: string) => any) | null = null;
+
   /** Game data (objects.xml parsed). Available after proxy startup. */
   public readonly gameData: GameDataLoader | null;
   /** Live entity tracker. Available after proxy startup. */
@@ -228,6 +231,11 @@ export class PluginContext {
   /** Read plugin runtime data. */
   getData<T = any>(key: string): T | undefined {
     return this._data.get(key) as T | undefined;
+  }
+
+  /** Read runtime data from another plugin by its ID. */
+  getPluginData<T = any>(pluginId: string, key: string): T | undefined {
+    return this.onGetPluginData?.(pluginId, key) as T | undefined;
   }
 
   /** Broadcast structured data to all dashboard clients via WebSocket. */

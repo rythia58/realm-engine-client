@@ -80,6 +80,9 @@ static void DebugSessionLogSetFeature(const char* key, const char* valueType)
 #endif
 }
 
+// ── DLL build version — increment on every change to this file or any dodge file ──
+static constexpr int DLL_BUILD = 1;
+
 // ── Pipe constants ────────────────────────────────────────────────────────────
 
 static const char* PipeName()    { return BUILD_PIPE_NAME; }
@@ -179,6 +182,7 @@ static std::atomic<int>   s_featCameraCenteringActive{0};
 static std::atomic<int>   s_featCameraCentered{1};
 static std::atomic<int>   s_featSkinOverrideEnabled{0};
 static std::atomic<int>   s_featSkinOverrideId{0};
+static std::atomic<int>   s_featO3ShieldActive{0};
 
 namespace {
 
@@ -661,6 +665,11 @@ int32_t IpcBridge_GetClientClassType()
     return s_featClientClassType.load(std::memory_order_relaxed);
 }
 
+bool IpcBridge_GetO3ShieldActive()
+{
+    return s_featO3ShieldActive.load(std::memory_order_relaxed) != 0;
+}
+
 void IpcBridge_ApplyFeatureOverrides()
 {
     // Player noclip is pure feature state plus keyboard polling. Apply it even
@@ -750,9 +759,10 @@ static int PipeReadMessage(HANDLE hPipe, char* buf, int bufSize)
 static int BuildHelloJson(char* buf, int bufSize, const char* challenge)
 {
     return snprintf(buf, bufSize,
-        "{\"type\":\"hello\",\"version\":3,\"protocol\":\"bridge-v3\",\"challenge\":\"%s\",\"features\":["
+        "{\"type\":\"hello\",\"version\":3,\"protocol\":\"bridge-v3\","
+        "\"build\":%d,\"challenge\":\"%s\",\"features\":["
         "\"autoDodge\",\"autoAim\",\"tileMap\""
-        "]}", challenge);
+        "]}", DLL_BUILD, challenge);
 }
 
 static int BuildAuthResultJson(char* buf, int bufSize, bool ok, const char* response)
@@ -1418,6 +1428,8 @@ static void DispatchCommand(char* json)
             IpcBridge_SetCameraCentering(JsonGetBool(json, "value"), s_featCameraCentered.load(std::memory_order_relaxed) != 0);
         } else if (strcmp(keyBuf, "cameraCentered") == 0) {
             IpcBridge_SetCameraCentering(s_featCameraCenteringActive.load(std::memory_order_relaxed) != 0, JsonGetBool(json, "value"));
+        } else if (strcmp(keyBuf, "o3ShieldActive") == 0) {
+            s_featO3ShieldActive.store(JsonGetBool(json, "value") ? 1 : 0, std::memory_order_relaxed);
         } else if (strcmp(keyBuf, "skinOverrideEnabled") == 0) {
             IpcBridge_SetSkinOverride(JsonGetBool(json, "value"), s_featSkinOverrideId.load(std::memory_order_relaxed));
         } else if (strcmp(keyBuf, "skinOverrideId") == 0) {

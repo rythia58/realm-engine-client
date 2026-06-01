@@ -86,6 +86,7 @@ int         IpcBridge_GetSkinOverrideId();
 void        IpcBridge_SetSkinOverride(bool enabled, int skinId);
 int32_t     IpcBridge_GetClientDefense();
 int32_t     IpcBridge_GetClientClassType();
+bool        IpcBridge_GetO3ShieldActive();
 
 // Apply latest feature values received via setFeature commands.
 // Call from the render thread once per frame.
