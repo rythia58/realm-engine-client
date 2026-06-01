@@ -163,6 +163,8 @@ std::atomic<int>         g_aimMode{ 0 };   // Multitool AutoAimMode: 0 closest, 
 std::atomic<float>       g_aimTargetX{ 0.f };
 std::atomic<float>       g_aimTargetY{ 0.f };
 std::atomic<bool>        g_hasAimTarget{ false };
+std::atomic<ULONGLONG>   g_aimTargetTs{ 0 };        // GetTickCount64() when target was last confirmed
+static constexpr ULONGLONG kAimTargetStaleMs = 150; // treat target as stale after this many ms
 
 // Feature toggles (Multitool AutoAim* config + xrDriver DAT_* globals).
 std::atomic<bool>        g_shootInvulnerable{ false };     // AutoAimShootInvulnerable
@@ -503,9 +505,18 @@ void __fastcall ComputeShootAngleDetour(
 
 void __fastcall ShootWithAngleDetour(void* player, float angle, void* method)
 {
+    // LMB held → player is manually aiming; yield to natural cursor angle.
+    if (GetAsyncKeyState(VK_LBUTTON) & 0x8000) {
+        g_ShootWithAngleOriginal(player, angle, method);
+        return;
+    }
     if (AimRedirectionActive(player) && AddrOk(player)) {
+        const ULONGLONG now = GetTickCount64();
         void* local = GameState::GetLocalPtr();
-        if (local && player == local && g_hasAimTarget.load(std::memory_order_relaxed)) {
+        if (local && player == local
+            && g_hasAimTarget.load(std::memory_order_relaxed)
+            && (now - g_aimTargetTs.load(std::memory_order_relaxed)) < kAimTargetStaleMs)
+        {
             float px2 = 0.f, py2 = 0.f;
             __try {
                 uint8_t* lp = reinterpret_cast<uint8_t*>(player);
@@ -527,12 +538,18 @@ void __fastcall ShootWithAngleDetour(void* player, float angle, void* method)
 
 void __fastcall SendShotPacketDetour(void* player, void* shotData, int32_t projCount, void* method)
 {
+    // LMB held → player is manually aiming; yield to natural cursor angle.
+    const bool lmbHeld = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
     // Realm / handshake paths may call with projCount==0 or non-standard shotData; skip writes (DIA4A parity for combat only).
     const bool shotBufOk =
         AddrOk(shotData) && AddrOk(reinterpret_cast<const uint8_t*>(shotData) + 0x24); // cover shotData+0x1C float write
-    if (AimRedirectionActive(player) && AddrOk(player) && shotBufOk && projCount > 0) {
+    if (!lmbHeld && AimRedirectionActive(player) && AddrOk(player) && shotBufOk && projCount > 0) {
+        const ULONGLONG now = GetTickCount64();
         void* local = GameState::GetLocalPtr();
-        if (local && player == local && g_hasAimTarget.load(std::memory_order_relaxed)) {
+        if (local && player == local
+            && g_hasAimTarget.load(std::memory_order_relaxed)
+            && (now - g_aimTargetTs.load(std::memory_order_relaxed)) < kAimTargetStaleMs)
+        {
             float px2 = 0.f, py2 = 0.f;
             __try {
                 uint8_t* lp = reinterpret_cast<uint8_t*>(player);
@@ -1210,6 +1227,7 @@ static void RunAutoAimTickBody()
         g_aimTargetY.store(aimY, std::memory_order_relaxed);
         g_hasAimTarget.store(found, std::memory_order_relaxed);
         g_aimFocusEnemyId.store(found ? bestId : 0, std::memory_order_relaxed);
+        if (found) g_aimTargetTs.store(nowAim, std::memory_order_relaxed);
     } else {
         g_hasAimTarget.store(false, std::memory_order_relaxed);
         g_aimFocusEnemyId.store(0, std::memory_order_relaxed);

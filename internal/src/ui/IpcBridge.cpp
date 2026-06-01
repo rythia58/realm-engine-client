@@ -81,7 +81,7 @@ static void DebugSessionLogSetFeature(const char* key, const char* valueType)
 }
 
 // ── DLL build version — increment on every change to this file or any dodge file ──
-static constexpr int DLL_BUILD = 1;
+static constexpr int DLL_BUILD = 2;
 
 // ── Pipe constants ────────────────────────────────────────────────────────────
 
