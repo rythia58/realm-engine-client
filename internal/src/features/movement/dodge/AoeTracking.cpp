@@ -68,11 +68,11 @@ static constexpr float kDedupTolSq = 0.01f;  // (0.1 tile)^2
 // than chip the player.
 static constexpr float kDefaultAoeRadiusTiles = 3.5f;
 
-// HJMBOMEHGDJ::CGBILOJJPEI — ShowEffect packet handler (RVA 0x180B33560).
+// HJMBOMEHGDJ::NKCFKIEHJGP — ShowEffect packet handler (was CGBILOJJPEI, confirmed by runtime probe).
 // Catches THROW(4), NOVA(5), CIRCLE_TELEGRAPH(23), AoE(39) effect types.
 // x64 ABI: rcx=this (HJMBOMEHGDJ*), rdx=COEFCBBIBMC* msg, r8=MethodInfo*
 static constexpr const char* kShowEffectClass      = "HJMBOMEHGDJ";
-static constexpr const char* kShowEffectMethod     = "CGBILOJJPEI";
+static constexpr const char* kShowEffectMethod     = "NKCFKIEHJGP";
 static constexpr int         kShowEffectParamCount = 1;  // (COEFCBBIBMC* msg)
 
 // COEFCBBIBMC ShowEffect packet field offsets — resolved at runtime via RuntimeOffsets.
@@ -657,7 +657,7 @@ static void __fastcall ExplSpawnDetour(void* self, void* anchor, void* ep, float
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HJMBOMEHGDJ::CGBILOJJPEI hook  (ShowEffect packet handler)
+// HJMBOMEHGDJ::NKCFKIEHJGP hook  (ShowEffect packet handler, was CGBILOJJPEI)
 //
 // Catches server-sent ShowEffect packets before game processes them.
 // Filters to: THROW(4)=throw arc, NOVA(5)=ring, CIRCLE_TELEGRAPH(23)=ground warn, AoE(39).
@@ -669,6 +669,13 @@ static void __fastcall ExplSpawnDetour(void* self, void* anchor, void* ep, float
 using ShowEffectFn = void (__fastcall*)(void* self, void* msg, void* method);
 static ShowEffectFn g_OrigShowEffect = nullptr;
 static void*        g_SfxTarget      = nullptr;
+
+// Discovery probe — used when kShowEffectMethod is renamed.
+// Hooks all 1-param OODFCLBKDJJ methods on HJMBOMEHGDJ; identifies the one that
+// fires with a COEFCBBIBMC argument, then promotes to the real ShowEffectDetour.
+static std::vector<std::pair<const MethodInfo*, ShowEffectFn>> g_ProbeOriginals;
+static Il2CppClass*                     s_coefClass       = nullptr;
+static std::atomic<const MethodInfo*>   s_discoveredSfxMi { nullptr };
 
 static std::atomic<uint32_t> g_DbgSfxLogs{ 0 };
 
@@ -752,9 +759,91 @@ static void __fastcall ShowEffectDetour(void* self, void* msg, void* method)
     // #endregion
 }
 
+static ShowEffectFn LookupProbeOriginal(const MethodInfo* mi)
+{
+    for (auto& p : g_ProbeOriginals)
+        if (p.first == mi) return p.second;
+    return nullptr;
+}
+
+// Probes all 43 OODFCLBKDJJ 1-param methods. When COEFCBBIBMC fires, records the
+// method name to C:\Users\Public\re_showeffect_discovery.txt and routes subsequent
+// calls through the real ShowEffectDetour.
+static void __fastcall ShowEffectDiscoveryProbe(void* self, void* arg, void* method)
+{
+    const MethodInfo* mi    = static_cast<const MethodInfo*>(method);
+    const MethodInfo* found = s_discoveredSfxMi.load(std::memory_order_relaxed);
+
+    if (found == mi) {
+        // Already identified — forward to real detour (which calls g_OrigShowEffect).
+        ShowEffectDetour(self, arg, method);
+        return;
+    }
+
+    // Not yet confirmed — call original and pass through.
+    ShowEffectFn orig = LookupProbeOriginal(mi);
+    if (orig) orig(self, arg, method);
+
+    if (!found && AddrOk(arg) && s_coefClass) {
+        Il2CppClass* argClass = nullptr;
+        __try { argClass = il2cpp_object_get_class(static_cast<Il2CppObject*>(arg)); }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+        if (argClass && il2cpp_class_is_assignable_from(s_coefClass, argClass)) {
+            const MethodInfo* expected = nullptr;
+            if (s_discoveredSfxMi.compare_exchange_strong(
+                    expected, mi, std::memory_order_acq_rel, std::memory_order_relaxed)) {
+                g_OrigShowEffect = orig;
+                const char* mname = il2cpp_method_get_name(mi);
+                FILE* f = nullptr;
+                fopen_s(&f, "C:\\Users\\Public\\re_showeffect_discovery.txt", "w");
+                if (f) { fprintf(f, "%s\n", mname ? mname : "?"); fclose(f); }
+            }
+        }
+    }
+}
+
+static bool StartShowEffectDiscovery()
+{
+    if (!g_ProbeOriginals.empty()) return true;  // already set up
+
+    Il2CppClass* klass = Resolver::GetClass("", kShowEffectClass);
+    if (!klass) return false;
+
+    s_coefClass = Resolver::FindClassLoose("COEFCBBIBMC");
+    Il2CppClass* oodfClass = Resolver::FindClassLoose("OODFCLBKDJJ");
+    if (!s_coefClass || !oodfClass) return false;
+
+    void*             iter  = nullptr;
+    const MethodInfo* mi    = nullptr;
+    int               hooked = 0;
+    while ((mi = il2cpp_class_get_methods(klass, &iter)) != nullptr) {
+        if (!mi->methodPointer) continue;
+        if (static_cast<int>(il2cpp_method_get_param_count(mi)) != 1) continue;
+        const Il2CppType* pt = il2cpp_method_get_param(mi, 0);
+        if (!pt) continue;
+        if (il2cpp_class_from_type(pt) != oodfClass) continue;
+        const char* mname = il2cpp_method_get_name(mi);
+        if (!mname) continue;
+        int len = 0; bool obf = true;
+        for (; mname[len]; ++len) if (mname[len] < 'A' || mname[len] > 'Z') { obf = false; break; }
+        if (!obf || len != 11) continue;
+
+        void*       target = reinterpret_cast<void*>(mi->methodPointer);
+        ShowEffectFn orig  = nullptr;
+        if (MH_CreateHook(target, reinterpret_cast<void*>(&ShowEffectDiscoveryProbe),
+                reinterpret_cast<void**>(&orig)) == MH_OK &&
+            MH_EnableHook(target) == MH_OK) {
+            g_ProbeOriginals.emplace_back(mi, orig);
+            ++hooked;
+        }
+    }
+    return hooked > 0;
+}
+
 static bool HookShowEffectPath()
 {
     if (g_SfxTarget) return true;
+    if (s_discoveredSfxMi.load(std::memory_order_relaxed)) return true;
     Il2CppClass* klass = Resolver::GetClass("", kShowEffectClass);
     if (!klass) {
         AgentLogAoe("H1", "AoeTracking.cpp:HookShowEffectPath", "no_klass",
@@ -765,6 +854,8 @@ static bool HookShowEffectPath()
     if (!mi || !mi->methodPointer) {
         AgentLogAoe("H1", "AoeTracking.cpp:HookShowEffectPath", "no_method",
             mi ? "{\"methodPointer\":0}" : "{\"methodInfo\":0}");
+        // Method renamed — start discovery probe to identify new name at runtime.
+        StartShowEffectDiscovery();
         return false;
     }
 
@@ -1005,6 +1096,14 @@ void Uninstall()
         g_SfxTarget      = nullptr;
         g_OrigShowEffect = nullptr;
     }
+    for (auto& p : g_ProbeOriginals) {
+        void* pt = reinterpret_cast<void*>(p.first->methodPointer);
+        MH_DisableHook(pt);
+        MH_RemoveHook(pt);
+    }
+    g_ProbeOriginals.clear();
+    s_discoveredSfxMi.store(nullptr, std::memory_order_relaxed);
+    s_coefClass = nullptr;
 }
 
 void CopyActiveForDraw(std::vector<WorldAoe>& out)

@@ -2,8 +2,10 @@
 #include "GameState.h"
 #include "RuntimeOffsets.h"
 #include "Il2CppResolver.h"
+#include "DbgFileLog.h"
 
 #include <Windows.h>
+#include <cstdio>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GameState — see GameState.h for design notes.
@@ -50,6 +52,147 @@ static bool PtrOk(const void* p)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// One-shot BeeByte rename diagnostic
+// Writes C:\Users\Public\re_classmap.txt on the first frame ApplicationManager
+// is found. Lists parent chain of known-alive classes and all non-Unity fields
+// on ApplicationManager, then dumps every loaded class name + parent name.
+// Safe to remove once the new names are confirmed.
+// ─────────────────────────────────────────────────────────────────────────────
+static void RunClassDiag(Il2CppClass* appMgrClass)
+{
+    FILE* f = nullptr;
+    fopen_s(&f, "C:\\Users\\Public\\re_classmap.txt", "w");
+    if (!f) return;
+
+    // ── 1. FKALGHJIADI (LocalPlayer, alive) parent chain ────────────────────
+    // Walks up: LocalPlayer → Character(dead) → MapObject(dead) → Player(alive)
+    fprintf(f, "=== FKALGHJIADI parent chain ===\n");
+    Il2CppClass* lp = Resolver::FindClassLoose("FKALGHJIADI");
+    if (lp) {
+        Il2CppClass* cur = il2cpp_class_get_parent(lp);
+        int depth = 0;
+        while (cur && depth < 6) {
+            const char* n = il2cpp_class_get_name(cur);
+            fprintf(f, "  depth %d: %s\n", depth + 1, n ? n : "?");
+            cur = il2cpp_class_get_parent(cur);
+            ++depth;
+        }
+    } else {
+        fprintf(f, "  FKALGHJIADI not found\n");
+    }
+
+    // ── 2. BGAIOPJMHLO (GroundTile, alive) parent chain ─────────────────────
+    fprintf(f, "=== BGAIOPJMHLO parent chain ===\n");
+    Il2CppClass* gt = Resolver::FindClassLoose("BGAIOPJMHLO");
+    if (gt) {
+        Il2CppClass* cur = il2cpp_class_get_parent(gt);
+        int depth = 0;
+        while (cur && depth < 4) {
+            const char* n = il2cpp_class_get_name(cur);
+            fprintf(f, "  depth %d: %s\n", depth + 1, n ? n : "?");
+            cur = il2cpp_class_get_parent(cur);
+            ++depth;
+        }
+    }
+
+    // ── 3. ApplicationManager non-Unity fields → new WorldManager name ───────
+    fprintf(f, "=== ApplicationManager fields ===\n");
+    if (appMgrClass) {
+        void* iter = nullptr;
+        FieldInfo* fi;
+        while ((fi = il2cpp_class_get_fields(appMgrClass, &iter)) != nullptr) {
+            const Il2CppType* ft = il2cpp_field_get_type(fi);
+            if (!ft) continue;
+            Il2CppClass* fklass = il2cpp_class_from_type(ft);
+            const char* fname   = il2cpp_field_get_name(fi);
+            const char* ftname  = fklass ? il2cpp_class_get_name(fklass) : "?";
+            const char* ftns    = fklass ? il2cpp_class_get_namespace(fklass) : "";
+            // Skip Unity/System types; ROTMG manager classes have empty namespace
+            bool isSystem = ftns && (strncmp(ftns, "UnityEngine", 11) == 0 ||
+                                     strncmp(ftns, "System", 6) == 0 ||
+                                     strncmp(ftns, "TMPro", 5) == 0);
+            fprintf(f, "  [%s] %s : %s\n", isSystem ? "skip" : "KEEP",
+                    fname ? fname : "?", ftname ? ftname : "?");
+        }
+    }
+
+    // ── 4. Full class dump: every class name + parent name ───────────────────
+    fprintf(f, "=== ALL CLASSES ===\n");
+    struct DumpCtx { FILE* f; };
+    DumpCtx ctx{ f };
+    il2cpp_class_for_each([](Il2CppClass* klass, void* ud) {
+        auto* c = static_cast<DumpCtx*>(ud);
+        const char* name = il2cpp_class_get_name(klass);
+        Il2CppClass* parent = il2cpp_class_get_parent(klass);
+        const char* pname   = parent ? il2cpp_class_get_name(parent) : "-";
+        fprintf(c->f, "%s\t%s\n", name ? name : "?", pname ? pname : "-");
+    }, &ctx);
+
+    // ── 5. Field enumeration for key classes ─────────────────────────────────
+    // Plugin reads these to verify RuntimeOffsets field names are still present.
+    static const char* kFieldClasses[] = {
+        "KJMONHENJEN", "LKHPPBEGNOM", "FKALGHJIADI",
+        "HJMBOMEHGDJ", "HBEAKBIHANL", "CMFPKCJHKKB"
+    };
+    for (const char* cn : kFieldClasses) {
+        Il2CppClass* klass = Resolver::FindClassLoose(cn);
+        if (!klass) continue;
+        fprintf(f, "=== FIELDS:%s ===\n", cn);
+        void* fi_iter = nullptr;
+        FieldInfo* fi;
+        while ((fi = il2cpp_class_get_fields(klass, &fi_iter)) != nullptr) {
+            const char* fname = il2cpp_field_get_name(fi);
+            const Il2CppType* ft = il2cpp_field_get_type(fi);
+            char* tname = ft ? il2cpp_type_get_name(ft) : nullptr;
+            fprintf(f, "%s\t%s\n", fname ? fname : "?", tname ? tname : "?");
+            if (tname) il2cpp_free(tname);
+        }
+    }
+
+    // ── 6. Method enumeration for hook classes (obfuscated names only) ────────
+    // Plugin uses these to verify hook method names are still present.
+    // Filter: exactly 11 uppercase letters — skips Unity/system method names.
+    static const char* kMethodClasses[] = {
+        "FKALGHJIADI", "HJMBOMEHGDJ", "LKHPPBEGNOM", "GJJCEFJMNMK"
+    };
+    for (const char* cn : kMethodClasses) {
+        Il2CppClass* klass = Resolver::FindClassLoose(cn);
+        if (!klass) continue;
+        fprintf(f, "=== METHODS:%s ===\n", cn);
+        void* mi_iter = nullptr;
+        const MethodInfo* mi;
+        while ((mi = il2cpp_class_get_methods(klass, &mi_iter)) != nullptr) {
+            const char* mname = il2cpp_method_get_name(mi);
+            if (!mname) continue;
+            // Only emit names that look obfuscated: exactly 11 A-Z chars
+            int len = 0; bool obf = true;
+            for (; mname[len]; ++len) { if (mname[len] < 'A' || mname[len] > 'Z') { obf = false; break; } }
+            if (!obf || len != 11) continue;
+            int nparams = (int)il2cpp_method_get_param_count(mi);
+            // Append first param type name so we can match by signature, not just count
+            char ptypes[256] = {};
+            for (int p = 0; p < nparams && p < 4; ++p) {
+                const Il2CppType* pt = il2cpp_method_get_param(mi, (uint32_t)p);
+                char* ptn = pt ? il2cpp_type_get_name(pt) : nullptr;
+                if (p) strncat_s(ptypes, sizeof(ptypes), ",", _TRUNCATE);
+                strncat_s(ptypes, sizeof(ptypes), ptn ? ptn : "?", _TRUNCATE);
+                if (ptn) il2cpp_free(ptn);
+            }
+            // Subtract GameAssembly base so address is a stable RVA across ASLR runs
+            const void* fnPtr = reinterpret_cast<const void*>(mi->methodPointer);
+            HMODULE hGA = GetModuleHandleW(L"GameAssembly.dll");
+            uintptr_t rva = hGA && fnPtr
+                ? (uintptr_t)fnPtr - (uintptr_t)hGA
+                : 0;
+            fprintf(f, "%s\t%d\t%s\t0x%llX\n", mname, nparams, ptypes, (unsigned long long)rva);
+        }
+    }
+
+    fclose(f);
+    DBG_FILE_LOG("[GameState] re_classmap.txt written to C:\\Users\\Public\\");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -78,6 +221,10 @@ void Tick()
         void* candidate = objs[0];
         if (!PtrOk(candidate)) return;
         s_appMgr = candidate;
+
+        // One-shot diagnostic — runs once, writes re_classmap.txt, then never again.
+        static bool s_diagDone = false;
+        if (!s_diagDone) { s_diagDone = true; RunClassDiag(s_appMgrClass); }
     }
 
     // ── Step 1b: resolve AppMgr→WorldMgr offset via type-scan (once) ────────

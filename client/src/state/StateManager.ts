@@ -76,7 +76,9 @@ export class StateManager {
   }
 
   private onCreateSuccess(client: ClientConnection, packet: Packet): void {
+    const prevMapName = client.playerData.mapName;
     client.playerData = new PlayerData();
+    client.playerData.mapName = prevMapName;
     client.playerData.ownerObjectId = packet.data.objectId;
     client.lastTeleportSentAt = 0;
     client.lastTeleportGotoAt = 0;

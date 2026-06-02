@@ -23,13 +23,16 @@ import { Logger } from '../../../util/Logger.js';
 
 type AnyHandler = (e: any) => void;
 
-const listeners: Map<string, AnyHandler[]> = new Map();
+type ListenerEntry = { handler: AnyHandler; scriptId: string | undefined };
+const listeners: Map<string, ListenerEntry[]> = new Map();
+let scriptSession: { scriptId: string | undefined } | null = null;
 
 // ─── Map-kind transition tracking ────────────────────────────────────────────
 
 type MapKind = 'nexus' | 'realm' | 'vault' | 'dungeon' | 'other';
 
-const prevMapKindByClient = new WeakMap<import('../../../proxy/ClientConnection.js').ClientConnection, MapKind>();
+let prevMapKind: MapKind | undefined;
+let prevMapName: string | undefined;
 
 let cachedDungeonNames: Set<string> | null = null;
 function getDungeonNames(gameData: GameDataLoader): Set<string> {
@@ -319,23 +322,25 @@ function checkPlayerNearbyWatches(client: ClientConnection, deps: BridgeDeps): v
 }
 
 function register(key: string, handler: AnyHandler): () => void {
+  const entry: ListenerEntry = { handler, scriptId: scriptSession?.scriptId };
   if (!listeners.has(key)) listeners.set(key, []);
-  listeners.get(key)!.push(handler);
+  listeners.get(key)!.push(entry);
   return () => {
     const arr = listeners.get(key) ?? [];
-    listeners.set(
-      key,
-      arr.filter((h) => h !== handler),
-    );
+    listeners.set(key, arr.filter((e) => e !== entry));
   };
 }
 
 export function fire(key: string, event: any): void {
-  for (const h of listeners.get(key) ?? []) {
+  for (const entry of listeners.get(key) ?? []) {
+    const prev = scriptSession ? scriptSession.scriptId : undefined;
+    if (scriptSession && entry.scriptId !== undefined) scriptSession.scriptId = entry.scriptId;
     try {
-      h(event);
+      entry.handler(event);
     } catch (err) {
       Logger.error('ScriptEvents', `events.${key} handler failed`, err as Error);
+    } finally {
+      if (scriptSession) scriptSession.scriptId = prev;
     }
   }
 }
@@ -431,6 +436,8 @@ function onNewTickForScriptEvents(client: ClientConnection, packet: Packet, deps
 }
 
 export function install(deps: BridgeDeps): void {
+  scriptSession = deps.scriptSession;
+
   events.onPlayerDied = (handler) => register('playerDied', handler);
 
   events.onRealmClosed = (handler) => register('realmClosed', handler);
@@ -538,30 +545,29 @@ export function install(deps: BridgeDeps): void {
     // Map-kind transition events
     const gameId = client.state?.gameId as number | undefined;
     const newKind = classifyMap(mapName, gameId, deps.gameData);
-    const prevKind = prevMapKindByClient.get(client);
-    prevMapKindByClient.set(client, newKind);
+    const prevKind = prevMapKind;
+    const oldMapName = prevMapName;
+    prevMapKind = newKind;
+    prevMapName = mapName;
 
     if (prevKind !== undefined) {
-      // Always log map-kind transitions — they're infrequent and high-value for diagnostics.
-      // Format: [Events] mapKind realm → nexus | map="..." gameId=N
       if (prevKind !== newKind) {
         Logger.log('Events', `mapKind ${prevKind} → ${newKind} | map="${mapName}" gameId=${gameId ?? '?'}`);
       }
 
       if (prevKind === 'realm' && newKind === 'nexus') {
-        Logger.log('Events', `realmClosed fired | previousMapName="${mapName}"`);
-        fire('realmClosed', { previousMapName: mapName });
+        Logger.log('Events', `realmClosed fired | previousMapName="${oldMapName ?? ''}"`);
+        fire('realmClosed', { previousMapName: oldMapName ?? '' });
       }
       if (newKind === 'dungeon' && prevKind !== 'dungeon') {
         Logger.log('Events', `dungeonEntered fired | dungeonName="${mapName}" from ${prevKind}`);
         fire('dungeonEntered', { dungeonName: mapName });
       }
       if (prevKind === 'dungeon' && newKind !== 'dungeon') {
-        Logger.log('Events', `dungeonExited fired | previousDungeonName="${mapName}" → ${newKind}`);
-        fire('dungeonExited', { previousDungeonName: mapName });
+        Logger.log('Events', `dungeonExited fired | previousDungeonName="${oldMapName ?? ''}" → ${newKind}`);
+        fire('dungeonExited', { previousDungeonName: oldMapName ?? '' });
       }
     } else {
-      // First MAPINFO for this client (no previous kind) — log initial state
       Logger.log('Events', `mapKind initial=${newKind} | map="${mapName}" gameId=${gameId ?? '?'}`);
     }
   });
@@ -582,7 +588,6 @@ export function install(deps: BridgeDeps): void {
     lastLevelByClient.delete(client);
     lastCharacterFameByClient.delete(client);
     prevInvByClient.delete(client);
-    prevMapKindByClient.delete(client);
     fire('disconnected', {
       serverAddress: client.state?.conTargetAddress
         ? `${client.state.conTargetAddress}:${client.state.conTargetPort ?? 2050}`

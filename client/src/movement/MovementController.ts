@@ -1,8 +1,6 @@
 import type { BridgeDeps } from '../scripts/bridge/BridgeDeps.js';
 import type { GameWorldState } from '../state/GameWorldState.js';
-import type { ClientConnection } from '../proxy/ClientConnection.js';
-import { findPath } from './Pathfinder.js';
-import { getCalibratedMoveTilesPerSecond } from './wasd-speed.js';
+import { sendDllFeature } from '../bridge/DllFeatureBus.js';
 import { Logger } from '../util/Logger.js';
 
 // Set RE_NAV_DEBUG=1 to enable verbose movement logs
@@ -13,37 +11,29 @@ export type WalkResult = 'reached' | 'timeout' | 'cancelled' | 'blocked';
 export interface WalkOptions {
   timeoutMs?: number;
   reachThreshold?: number;
-  maxRetries?: number;
+  maxRetries?: number; // kept for API compat, unused
 }
 
 const DEFAULT_REACH_THRESHOLD = 0.9;
 const DEFAULT_TIMEOUT_MS = 20000;
-const DEFAULT_MAX_RETRIES = 4;
-const DODGE_SETTLE_MS = 400;
-const MIN_STEP_MS = 80;
-const MAX_STEP_MS = 500;
+const POLL_MS = 100;
+// Stuck detection: if the player hasn't moved this far in this many polls, give up.
+const STUCK_DIST = 0.3;
+const STUCK_POLLS = 25; // 2.5s of no movement
 
 /**
- * Handles A*-based walkTo navigation by injecting MOVE packets.
+ * DLL-backed walkTo navigation.
  *
- * AutoDodge cooperation: after each MOVE the controller sleeps for the
- * expected travel time, then checks how far the actual position diverged
- * from the commanded waypoint. A large divergence indicates AutoDodge
- * deflected the player; the controller waits briefly for the dodge to
- * settle, then replans from the new position.
+ * Sets walkTargetX/Y/Active on the native DLL via DllFeatureBus.
+ * The DLL's movement loop (TestTAB) moves the player and feeds the goal
+ * into DangerPlanner so AutoDodge and walking cooperate automatically.
+ * Position is polled from playerData to detect arrival, timeout, or stuck.
  *
  * DIAGNOSTICS (RE_NAV_DEBUG=1):
- *   [MoveCtrl] walk#N START → (x,y) | timeout=Xms reach=X retries=N
- *   [MoveCtrl] walk#N plan  | from (fx,fy) waypoints=N retriesLeft=N
- *   [MoveCtrl] walk#N step  I/N | curr (cx,cy) → wp (wx,wy) dist=X tps=X wait=Xms
- *   [MoveCtrl] walk#N DODGE | expected (ex,ey) actual (ax,ay) δ=X threshold=X | settling Xms replan #I
- *   [MoveCtrl] walk#N SKIP  | already past wp I/N (dist X ≤ reach X)
- *   [MoveCtrl] walk#N EXHAUSTED | replan #I → N waypoints
- *   [MoveCtrl] walk#N DONE  | result=reached elapsed=Xms steps=N replans=N
- *
- * Errors (always visible):
- *   [MoveCtrl] walk#N blocked — no path found on replan #I
- *   [MoveCtrl] walkTo error: <message>
+ *   [MoveCtrl] walk#N START → (x,y) | timeout=Xms reach=X
+ *   [MoveCtrl] walk#N DONE  | result=reached dist=X elapsed=Xms
+ *   [MoveCtrl] walk#N DONE  | result=cancelled/timeout elapsed=Xms
+ *   [MoveCtrl] walk#N blocked — no connected client / disconnected / stuck
  */
 export class MovementController {
   private _active = false;
@@ -54,16 +44,16 @@ export class MovementController {
 
   constructor(
     private deps: BridgeDeps,
-    private worldState: GameWorldState,
+    // kept for signature compat with existing callers
+    _worldState: GameWorldState,
   ) {}
 
   /** Returns a Promise that resolves when the player reaches (wx, wy) or an exit condition occurs. */
   async walkTo(wx: number, wy: number, opts?: WalkOptions): Promise<WalkResult> {
-    // Cancel any in-progress walk before starting a new one
     if (this._active) {
       if (NAV_DEBUG) Logger.log('MoveCtrl', `interrupting previous walk to start → (${wx.toFixed(2)},${wy.toFixed(2)})`);
       this.cancel();
-      await this._sleep(50); // let the previous walk unwind
+      await this._sleep(50);
     }
 
     this._cancelled = false;
@@ -76,6 +66,7 @@ export class MovementController {
       return 'blocked';
     } finally {
       this._active = false;
+      sendDllFeature('walkTargetActive', false);
     }
   }
 
@@ -92,13 +83,8 @@ export class MovementController {
   private async _walkLoop(walkId: number, wx: number, wy: number, opts: WalkOptions): Promise<WalkResult> {
     const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const reachThreshold = opts.reachThreshold ?? DEFAULT_REACH_THRESHOLD;
-    const maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES;
     const deadline = Date.now() + timeoutMs;
     const startTime = Date.now();
-
-    let retriesLeft = maxRetries;
-    let totalSteps = 0;
-    let totalReplans = 0;
 
     const client = this.deps.clientRef.current;
     if (!client?.connected) {
@@ -106,156 +92,63 @@ export class MovementController {
       return 'blocked';
     }
 
+    // Already there?
+    const startPos = client.playerData.pos;
+    if (Math.hypot(startPos.x - wx, startPos.y - wy) <= reachThreshold) {
+      if (NAV_DEBUG) Logger.log('MoveCtrl', `walk#${walkId} DONE | result=reached (already there)`);
+      return 'reached';
+    }
+
     if (NAV_DEBUG) {
-      Logger.log('MoveCtrl', `walk#${walkId} START → (${wx.toFixed(2)},${wy.toFixed(2)}) | timeout=${timeoutMs}ms reach=${reachThreshold} retries=${maxRetries}`);
+      Logger.log('MoveCtrl', `walk#${walkId} START → (${wx.toFixed(2)},${wy.toFixed(2)}) from (${startPos.x.toFixed(2)},${startPos.y.toFixed(2)}) | timeout=${timeoutMs}ms reach=${reachThreshold}`);
     }
 
-    const doReplan = (label: string): Array<{ x: number; y: number }> => {
-      const pos = client.playerData.pos;
-      const path = findPath(this.worldState, this.deps.gameData, pos, { x: wx, y: wy });
-      if (NAV_DEBUG) {
-        Logger.log('MoveCtrl', `walk#${walkId} plan  | ${label} from (${pos.x.toFixed(2)},${pos.y.toFixed(2)}) waypoints=${path.length} retriesLeft=${retriesLeft}`);
-      }
-      return path;
-    };
+    // Arm the DLL walk target
+    sendDllFeature('walkTargetX', wx);
+    sendDllFeature('walkTargetY', wy);
+    sendDllFeature('walkTargetActive', true);
 
-    let waypoints = doReplan('initial');
-    let waypointIndex = 0;
-
-    if (waypoints.length === 0) {
-      const pos = client.playerData.pos;
-      const dist = Math.hypot(pos.x - wx, pos.y - wy);
-      if (dist <= reachThreshold) {
-        if (NAV_DEBUG) Logger.log('MoveCtrl', `walk#${walkId} DONE | result=reached (already there) dist=${dist.toFixed(3)}`);
-        return 'reached';
-      }
-      Logger.warn('MoveCtrl', `walk#${walkId} blocked — no initial path found (dist=${dist.toFixed(2)})`);
-      return 'blocked';
-    }
+    let stuckPolls = 0;
+    let lastPos = { x: startPos.x, y: startPos.y };
 
     while (true) {
+      await this._sleep(POLL_MS);
+
       if (this._cancelled) {
-        if (NAV_DEBUG) Logger.log('MoveCtrl', `walk#${walkId} DONE | result=cancelled elapsed=${Date.now()-startTime}ms steps=${totalSteps} replans=${totalReplans}`);
+        if (NAV_DEBUG) Logger.log('MoveCtrl', `walk#${walkId} DONE | result=cancelled elapsed=${Date.now() - startTime}ms`);
         return 'cancelled';
       }
-      const elapsed = Date.now() - startTime;
-      if (Date.now() > deadline) {
-        if (NAV_DEBUG) Logger.log('MoveCtrl', `walk#${walkId} DONE | result=timeout elapsed=${elapsed}ms steps=${totalSteps} replans=${totalReplans}`);
-        return 'timeout';
-      }
+
       if (!client.connected) {
-        Logger.warn('MoveCtrl', `walk#${walkId} blocked — client disconnected at step ${totalSteps}`);
+        Logger.warn('MoveCtrl', `walk#${walkId} blocked — client disconnected`);
         return 'blocked';
       }
 
-      const pos = client.playerData.pos;
-      const goalDist = Math.hypot(pos.x - wx, pos.y - wy);
+      if (Date.now() > deadline) {
+        if (NAV_DEBUG) Logger.log('MoveCtrl', `walk#${walkId} DONE | result=timeout elapsed=${Date.now() - startTime}ms`);
+        return 'timeout';
+      }
 
-      if (goalDist <= reachThreshold) {
-        if (NAV_DEBUG) Logger.log('MoveCtrl', `walk#${walkId} DONE | result=reached dist=${goalDist.toFixed(3)} elapsed=${Date.now()-startTime}ms steps=${totalSteps} replans=${totalReplans}`);
+      const pos = client.playerData.pos;
+      const dist = Math.hypot(pos.x - wx, pos.y - wy);
+
+      if (dist <= reachThreshold) {
+        if (NAV_DEBUG) Logger.log('MoveCtrl', `walk#${walkId} DONE | result=reached dist=${dist.toFixed(3)} elapsed=${Date.now() - startTime}ms`);
         return 'reached';
       }
 
-      // Path exhausted — replan if retries remain
-      if (waypointIndex >= waypoints.length) {
-        if (retriesLeft <= 0) {
-          Logger.warn('MoveCtrl', `walk#${walkId} blocked — path exhausted, no retries left (steps=${totalSteps})`);
+      // Stuck detection: if position barely changed over STUCK_POLLS intervals
+      const moved = Math.hypot(pos.x - lastPos.x, pos.y - lastPos.y);
+      if (moved < STUCK_DIST) {
+        stuckPolls++;
+        if (stuckPolls >= STUCK_POLLS) {
+          Logger.warn('MoveCtrl', `walk#${walkId} blocked — stuck (no movement for ${(STUCK_POLLS * POLL_MS / 1000).toFixed(1)}s, dist=${dist.toFixed(2)})`);
           return 'blocked';
         }
-        retriesLeft--;
-        totalReplans++;
-        waypoints = doReplan(`exhausted replan #${totalReplans}`);
-        waypointIndex = 0;
-        if (waypoints.length === 0) {
-          Logger.warn('MoveCtrl', `walk#${walkId} blocked — replan #${totalReplans} found no path (dist=${goalDist.toFixed(2)})`);
-          return 'blocked';
-        }
-        continue;
+      } else {
+        stuckPolls = 0;
+        lastPos = { x: pos.x, y: pos.y };
       }
-
-      const waypoint = waypoints[waypointIndex]!;
-      const wpDist = Math.hypot(pos.x - waypoint.x, pos.y - waypoint.y);
-
-      // Skip waypoints already passed
-      if (wpDist <= reachThreshold) {
-        if (NAV_DEBUG) Logger.log('MoveCtrl', `walk#${walkId} SKIP  | wp ${waypointIndex+1}/${waypoints.length} (${waypoint.x.toFixed(2)},${waypoint.y.toFixed(2)}) dist=${wpDist.toFixed(3)} ≤ reach=${reachThreshold}`);
-        waypointIndex++;
-        continue;
-      }
-
-      // Send MOVE packet toward this waypoint
-      const tps = getCalibratedMoveTilesPerSecond(client);
-      const travelMs = tps > 0 ? Math.ceil((wpDist / tps) * 1000) : 200;
-      const stepMs = Math.max(MIN_STEP_MS, Math.min(travelMs, MAX_STEP_MS));
-
-      if (NAV_DEBUG) {
-        Logger.log('MoveCtrl', `walk#${walkId} step  ${waypointIndex+1}/${waypoints.length} | curr (${pos.x.toFixed(2)},${pos.y.toFixed(2)}) → wp (${waypoint.x.toFixed(2)},${waypoint.y.toFixed(2)}) dist=${wpDist.toFixed(3)} tps=${tps.toFixed(2)} wait=${stepMs}ms`);
-      }
-
-      const sent = this._sendMove(client, waypoint.x, waypoint.y);
-      if (!sent) {
-        await this._sleep(100);
-        continue;
-      }
-      totalSteps++;
-
-      const expectedX = waypoint.x;
-      const expectedY = waypoint.y;
-
-      await this._sleep(stepMs);
-      if (this._cancelled) {
-        if (NAV_DEBUG) Logger.log('MoveCtrl', `walk#${walkId} DONE | result=cancelled elapsed=${Date.now()-startTime}ms steps=${totalSteps} replans=${totalReplans}`);
-        return 'cancelled';
-      }
-
-      // Detect AutoDodge deflection: compare actual position to commanded waypoint
-      const afterPos = client.playerData.pos;
-      const deflection = Math.hypot(afterPos.x - expectedX, afterPos.y - expectedY);
-      const deflectThreshold = reachThreshold * 2.5;
-
-      if (deflection > deflectThreshold) {
-        if (NAV_DEBUG) {
-          Logger.log('MoveCtrl', `walk#${walkId} DODGE | expected (${expectedX.toFixed(2)},${expectedY.toFixed(2)}) actual (${afterPos.x.toFixed(2)},${afterPos.y.toFixed(2)}) δ=${deflection.toFixed(3)} > ${deflectThreshold.toFixed(3)} | settling ${DODGE_SETTLE_MS}ms retriesLeft=${retriesLeft}`);
-        }
-        await this._sleep(DODGE_SETTLE_MS);
-        if (this._cancelled) return 'cancelled';
-        if (retriesLeft <= 0) {
-          Logger.warn('MoveCtrl', `walk#${walkId} blocked — dodge+replan retries exhausted (deflection=${deflection.toFixed(2)})`);
-          return 'blocked';
-        }
-        retriesLeft--;
-        totalReplans++;
-        waypoints = doReplan(`dodge replan #${totalReplans}`);
-        waypointIndex = 0;
-        if (waypoints.length === 0) {
-          Logger.warn('MoveCtrl', `walk#${walkId} blocked — no path after dodge replan #${totalReplans}`);
-          return 'blocked';
-        }
-        continue;
-      }
-
-      // Advance if close enough to waypoint
-      const nowPos = client.playerData.pos;
-      if (Math.hypot(nowPos.x - waypoint.x, nowPos.y - waypoint.y) <= reachThreshold) {
-        waypointIndex++;
-      }
-    }
-  }
-
-  private _sendMove(client: ClientConnection, x: number, y: number): boolean {
-    try {
-      const pkt = this.deps.proxy.packetFactory.createByName('MOVE');
-      pkt.data = {
-        tickId: client.lastNewTickId,
-        serverRealTimeMSofLastNewTick: client.lastServerRealTimeMs,
-        records: [{ time: client.time, x, y }],
-      };
-      pkt.modified = true;
-      client.sendToServer(pkt);
-      return true;
-    } catch (err) {
-      Logger.warn('MoveCtrl', `_sendMove failed: ${(err as Error).message}`);
-      return false;
     }
   }
 

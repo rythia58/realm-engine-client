@@ -7808,7 +7808,6 @@ body.admin-mode.packet-sniffer-hidden #sniffer-drawer {
 #tab-scripts.tab-panel.active {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 98px);
   min-height: 0;
   overflow: hidden;
 }
@@ -10292,6 +10291,19 @@ body.admin-mode.packet-sniffer-hidden #sniffer-drawer {
   right: 16px;
   bottom: 18px;
   z-index: 120;
+}
+
+/* Push dock above collapsed sniffer bar (40px) when it's visible */
+body.admin-mode:not(.packet-sniffer-hidden) .single-account-dock {
+  bottom: 58px;
+}
+
+/* Push dock above expanded sniffer (45vh) */
+body.admin-mode:not(.packet-sniffer-hidden):has(#sniffer-drawer.expanded) .single-account-dock {
+  bottom: calc(45vh + 8px);
+}
+
+.single-account-dock {
   width: 320px;
   display: flex;
   flex-direction: column;
@@ -14480,6 +14492,11 @@ textarea.script-panel-input { min-height: 70px; resize: vertical; font-family: i
   color: var(--text-primary, #e6edf3);
   font-size: 12px;
   font-weight: 600;
+}
+.scripts-create-slug {
+  font-size: 11px;
+  color: var(--text-muted, #8b949e);
+  min-height: 14px;
 }
 .scripts-create-actions {
   display: flex;

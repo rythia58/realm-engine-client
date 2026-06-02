@@ -71,7 +71,7 @@ function sdkMatchesPackaged(packagedSdkDir: string, targetDir: string, packagedV
   if (readSdkVersion(targetDir) !== packagedVersion) return false;
 
   const sentinelFiles = [
-    join('dist', 'index.js'),
+    join('dist', 'bridge-stub.js'),
     join('dist', 'ui', 'Panel.js'),
     join('dist', 'types', 'ui', 'Panel.d.ts'),
     join('src', 'ui', 'Panel.ts'),
@@ -166,6 +166,15 @@ export function ensureSdkDeployed(): void {
     for (const targetDir of staleDirs) {
       copySdkToDocuments(packagedSdkDir, targetDir);
     }
+
+    // Overwrite dist/index.js in every deployed location with the bridge stub so user
+    // scripts importing @realmengine/sdk get the live patched implementations from
+    // globalThis.__realmengineSDK instead of the unpatched TypeScript-compiled stubs.
+    const bridgeStubContent = readFileSync(join(packagedSdkDir, 'dist', 'bridge-stub.js'), 'utf8');
+    for (const targetDir of staleDirs) {
+      writeFileSync(join(targetDir, 'dist', 'index.js'), bridgeStubContent, 'utf8');
+    }
+
     mkdirSync(realmengineDir, { recursive: true });
     writeFileSync(versionFilePath, packagedVersion);
 

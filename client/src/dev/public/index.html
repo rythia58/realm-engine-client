@@ -244,6 +244,7 @@
         <button class="content-tab admin-only" data-tab="internal" data-icon="DLL" data-label="Internal">Internal</button>
         <div class="content-tabs-section-label dev-only" id="content-tabs-dev-label" data-i18n="tab.developer">Developer</div>
         <button class="content-tab dev-only" data-tab="api" data-icon="{}" data-label="API" data-i18n="tab.api">API</button>
+        <button class="content-tab dev-only" data-tab="beebyte" data-icon="BB" data-label="BeeByte">BeeByte</button>
         <button class="content-tab dev-only" data-tab="objects" data-icon="O" data-label="Objects" data-i18n="tab.objects">Objects</button>
         <button class="content-tab dev-only" data-tab="tilemap" data-icon="T" data-label="Tilemap" data-i18n="tab.tilemap">Tilemap</button>
         <button class="content-tab dev-only" data-tab="game-wiki" data-icon="W" data-label="Game Wiki" data-i18n="tab.gameWiki">Game Wiki</button>
@@ -1528,6 +1529,39 @@
 
       <div id="tab-api" class="tab-panel" style="display:none;">
         <iframe class="api-docs-iframe" src="api-docs-tab.html" title="Scripting API reference"></iframe>
+      </div>
+
+      <div id="tab-beebyte" class="tab-panel dev-only" style="display:none;">
+        <div id="bb-root" style="padding:16px;font-family:var(--font-mono,monospace);overflow-y:auto;height:100%;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+            <h2 style="margin:0;font-size:15px;letter-spacing:.04em;">BeeByte Monitor</h2>
+            <button id="bb-refresh-btn" style="padding:3px 10px;font-size:12px;cursor:pointer;">↻ Scan</button>
+            <button id="bb-export-btn" style="padding:3px 10px;font-size:12px;cursor:pointer;">⬇ Export diff</button>
+            <span id="bb-last-updated" style="font-size:11px;opacity:.55;"></span>
+          </div>
+          <div id="bb-status-bar" style="padding:7px 12px;border-radius:5px;margin-bottom:14px;font-size:12px;background:#1a1a1a;"></div>
+          <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+            <div class="bb-card" id="bb-card-classes" style="flex:1;min-width:140px;padding:10px;background:#111;border-radius:5px;">
+              <div style="font-size:10px;opacity:.6;margin-bottom:4px;">CLASSES</div>
+              <div id="bb-stat-classes" style="font-size:20px;font-weight:bold;">—</div>
+              <div id="bb-stat-classes-sub" style="font-size:11px;opacity:.7;"></div>
+            </div>
+            <div class="bb-card" id="bb-card-fields" style="flex:1;min-width:140px;padding:10px;background:#111;border-radius:5px;">
+              <div style="font-size:10px;opacity:.6;margin-bottom:4px;">FIELDS</div>
+              <div id="bb-stat-fields" style="font-size:20px;font-weight:bold;">—</div>
+              <div id="bb-stat-fields-sub" style="font-size:11px;opacity:.7;"></div>
+            </div>
+            <div class="bb-card" id="bb-card-methods" style="flex:1;min-width:140px;padding:10px;background:#111;border-radius:5px;">
+              <div style="font-size:10px;opacity:.6;margin-bottom:4px;">HOOK METHODS</div>
+              <div id="bb-stat-methods" style="font-size:20px;font-weight:bold;">—</div>
+              <div id="bb-stat-methods-sub" style="font-size:11px;opacity:.7;"></div>
+            </div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <input id="bb-search" type="text" placeholder="Search class name…" style="width:100%;box-sizing:border-box;padding:6px 10px;font-size:12px;background:#111;border:1px solid #333;color:inherit;border-radius:4px;" />
+          </div>
+          <div id="bb-results" style="font-size:12px;line-height:1.7;"></div>
+        </div>
       </div>
 
       <div id="tab-scripts" class="tab-panel dev-only" style="display:none;">

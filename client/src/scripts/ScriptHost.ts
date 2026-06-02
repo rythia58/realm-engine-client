@@ -32,9 +32,9 @@ interface ScriptManifest {
 }
 
 interface ScriptInstance {
-  onStart(): void;
-  onLoop(): number;
-  onStop(): void;
+  onStart(): void | Promise<void>;
+  onLoop(): number | Promise<number>;
+  onStop(): void | Promise<void>;
 }
 
 const SCRIPT_MANIFEST = 'realmengine.script.json';
@@ -115,6 +115,16 @@ export class ScriptHost {
     this.scriptSession.scriptId = id;
     try {
       return fn();
+    } finally {
+      this.scriptSession.scriptId = prev;
+    }
+  }
+
+  private async withScriptIdAsync<T>(id: string, fn: () => T | Promise<T>): Promise<T> {
+    const prev = this.scriptSession.scriptId;
+    this.scriptSession.scriptId = id;
+    try {
+      return await fn();
     } finally {
       this.scriptSession.scriptId = prev;
     }
@@ -292,37 +302,28 @@ export class ScriptHost {
         return { ok: false, error: 'Script must implement onStart(), onLoop(), and onStop()' };
       }
 
-      {
-        const diagBag = (globalThis as unknown as { __realmengineSDK?: { RealmEngine?: { ui?: { status?: unknown; panel?: { define?: unknown } } } } }).__realmengineSDK;
-        const diagUi = diagBag?.RealmEngine?.ui;
-        const diagStatusSrc = typeof diagUi?.status === 'function' ? Function.prototype.toString.call(diagUi.status).slice(0, 60) : String(diagUi?.status);
-        console.error('[ScriptHost] DIAG pre-onStart: bag=%s RealmEngine=%s ui=%s status=%s panel.define=%s\n  status.src=%s',
-          !!diagBag, !!diagBag?.RealmEngine, !!diagUi, typeof diagUi?.status, typeof diagUi?.panel?.define, diagStatusSrc);
-      }
-
-      this.withScriptId(id, () => {
+      await this.withScriptIdAsync(id, async () => {
         this.log(id, `Starting ${script.name} v${script.version} by ${script.developer}...`);
-        instance.onStart();
+        await instance.onStart();
       });
 
       const startedAt = Date.now();
-      const schedule = () => {
+      const schedule = async () => {
         if (!this.running.has(id)) return;
-        this.withScriptId(id, () => {
-          try {
-            const delay = instance.onLoop();
-            if (typeof delay === 'number' && delay < 0) {
-              this.log(id, 'Script requested stop (onLoop returned < 0).');
-              this.stop(id);
-              return;
-            }
-            const timer = setTimeout(schedule, typeof delay === 'number' ? delay : 600);
-            this.running.set(id, { instance, timer, startedAt });
-          } catch (err: any) {
-            this.log(id, `Error in onLoop: ${err.message}`, 'error');
+        try {
+          const delay = await this.withScriptIdAsync(id, () => instance.onLoop());
+          if (!this.running.has(id)) return;
+          if (typeof delay === 'number' && delay < 0) {
+            this.log(id, 'Script requested stop (onLoop returned < 0).');
             this.stop(id);
+            return;
           }
-        });
+          const timer = setTimeout(schedule, typeof delay === 'number' ? delay : 600);
+          this.running.set(id, { instance, timer, startedAt });
+        } catch (err: any) {
+          this.log(id, `Error in onLoop: ${err.message}`, 'error');
+          this.stop(id);
+        }
       };
 
       const timer = setTimeout(schedule, 0);
@@ -355,9 +356,9 @@ export class ScriptHost {
     }
     this.emitScriptsStateChanged();
 
-    this.withScriptId(id, () => {
+    void this.withScriptIdAsync(id, async () => {
       try {
-        entry.instance.onStop();
+        await entry.instance.onStop();
         this.log(id, 'Stopped.');
       } catch (err: any) {
         this.log(id, `Error in onStop: ${err.message}`, 'error');

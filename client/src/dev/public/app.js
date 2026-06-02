@@ -99,7 +99,7 @@
 
   const TRANSLATIONS = {
     en: {
-      'tab.home': 'Home', 'tab.plugins': 'Plugins', 'tab.api': 'API',
+      'tab.home': 'Home', 'tab.plugins': 'Plugins', 'tab.api': 'API', 'tab.beebyte': 'BeeByte',
       'tab.accounts': 'Accounts', 'tab.logs': 'Logs',
       'tab.damage': 'Damage Sniffer', 'tab.objects': 'Objects', 'tab.tilemap': 'Tilemap',
       'tab.gameWiki': 'Game Wiki',       'tab.nearby': 'Nearby Players', 'tab.scripts': 'Scripts',
@@ -566,7 +566,7 @@
       'home.equipment.noneEquipped': 'No equipment equipped',
     },
     es: {
-      'tab.home': 'Inicio', 'tab.plugins': 'Complementos', 'tab.api': 'API',
+      'tab.home': 'Inicio', 'tab.plugins': 'Complementos', 'tab.api': 'API', 'tab.beebyte': 'BeeByte',
       'tab.accounts': 'Cuentas', 'tab.logs': 'Registros',
       'tab.damage': 'Analizador de Daño', 'tab.objects': 'Objetos', 'tab.tilemap': 'Mapa de Tiles',
       'tab.gameWiki': 'Wiki del Juego', 'tab.nearby': 'Jugadores Cercanos', 'tab.scripts': 'Guiones',
@@ -895,7 +895,7 @@
       'home.equipment.noneEquipped': 'Sin equipo equipado',
     },
     de: {
-      'tab.home': 'Startseite', 'tab.plugins': 'Erweiterungen', 'tab.api': 'API',
+      'tab.home': 'Startseite', 'tab.plugins': 'Erweiterungen', 'tab.api': 'API', 'tab.beebyte': 'BeeByte',
       'tab.accounts': 'Konten', 'tab.logs': 'Protokolle',
       'tab.damage': 'Schadensanalyse', 'tab.objects': 'Objekte', 'tab.tilemap': 'Kachelkarte',
       'tab.gameWiki': 'Spiel-Wiki', 'tab.nearby': 'Nahe Spieler', 'tab.scripts': 'Skripte',
@@ -1224,7 +1224,7 @@
       'home.equipment.noneEquipped': 'Keine Ausrüstung angelegt',
     },
     pt: {
-      'tab.home': 'Início', 'tab.plugins': 'Complementos', 'tab.api': 'API',
+      'tab.home': 'Início', 'tab.plugins': 'Complementos', 'tab.api': 'API', 'tab.beebyte': 'BeeByte',
       'tab.accounts': 'Contas', 'tab.logs': 'Registros',
       'tab.damage': 'Analisador de Dano', 'tab.objects': 'Objetos', 'tab.tilemap': 'Mapa de Tiles',
       'tab.gameWiki': 'Wiki do Jogo', 'tab.nearby': 'Jogadores Próximos', 'tab.scripts': 'Roteiros',
@@ -1553,7 +1553,7 @@
       'home.equipment.noneEquipped': 'Nenhum equipamento',
     },
     ja: {
-      'tab.home': 'ホーム', 'tab.plugins': 'プラグイン', 'tab.api': 'API',
+      'tab.home': 'ホーム', 'tab.plugins': 'プラグイン', 'tab.api': 'API', 'tab.beebyte': 'BeeByte',
       'tab.accounts': 'アカウント', 'tab.logs': 'ログ',
       'tab.damage': 'ダメージ解析', 'tab.objects': 'オブジェクト', 'tab.tilemap': 'タイルマップ',
       'tab.gameWiki': '攻略Wiki', 'tab.nearby': '近くのプレイヤー', 'tab.scripts': 'スクリプト',
@@ -2736,7 +2736,7 @@
     document.body.classList.toggle('dev-mode', devMode);
     devModeToggle.checked = devMode;
     if (!devMode) {
-      if (activeTab === 'api' || activeTab === 'objects' || activeTab === 'tilemap' || activeTab === 'nearby' || activeTab === 'scripts') {
+      if (activeTab === 'api' || activeTab === 'beebyte' || activeTab === 'objects' || activeTab === 'tilemap' || activeTab === 'nearby' || activeTab === 'scripts') {
         var fallbackBtn = document.querySelector('.content-tab[data-tab="plugins"]');
         if (fallbackBtn) fallbackBtn.click();
       }
@@ -10266,6 +10266,7 @@
     if (tabName === 'accounts') renderAccountsTab();
     if (tabName === 'damage') renderDamageTab();
     if (tabName === 'logs') refreshLogsEmptyState();
+    if (tabName === 'beebyte') renderBeebyteTab();
     if (tabName === 'objects') renderObjectsTree(lastObjectsData);
     if (tabName === 'tilemap') {
       renderTilemapTree(lastTilesData);
@@ -11946,6 +11947,221 @@
     } else if (msg.dataType === 'encounterComplete') {
       // Backward compat (old model)
     }
+  }
+
+  // ─── BeeByte Monitor tab ────────────────────────────────
+
+  var _bbData = null;
+
+  function renderBeebyteTab() {
+    var refreshBtn = document.getElementById('bb-refresh-btn');
+    if (refreshBtn) refreshBtn.onclick = function() { _bbData = null; loadBeebyteData(); };
+    var exportBtn = document.getElementById('bb-export-btn');
+    if (exportBtn) exportBtn.onclick = exportBeebyteDiff;
+    loadBeebyteData();
+  }
+
+  function exportBeebyteDiff() {
+    var d = _bbData;
+    if (!d) { alert('No data loaded yet — click Scan first.'); return; }
+    var ts = d.lastUpdated ? new Date(d.lastUpdated).toISOString().replace('T',' ').slice(0,19) + ' UTC' : 'unknown';
+    var lines = [];
+    lines.push('BeeByte diff report — ' + ts);
+    lines.push('Dead list: ' + (d.alive.length + d.unmatched.length) + ' entries  |  Runtime classmap: ' + (d.classmap ? d.classmap.length : '?') + ' classes');
+    lines.push('');
+    lines.push('✅ FALSE-DEAD (' + d.alive.length + ') — bot marked these as renamed but they are still present at runtime:');
+    d.alive.forEach(function(n) { lines.push('  ' + n); });
+    lines.push('');
+    lines.push('⚠️  GENUINELY RENAMED (' + d.unmatched.length + ') — need manual patch:');
+    if (d.unmatched.length === 0) {
+      lines.push('  (none)');
+    } else {
+      d.unmatched.forEach(function(u) { lines.push('  ' + u.old + '  →  ' + u.friendly); });
+    }
+    if (d.classmapLoaded && (d.fieldMiss.length > 0 || d.methodMiss.length > 0)) {
+      lines.push('');
+      lines.push('⚠️  MISSING FIELDS (' + d.fieldMiss.length + '):');
+      d.fieldMiss.forEach(function(f) { lines.push('  ' + f.cls + '.' + f.field); });
+      lines.push('⚠️  MISSING HOOK METHODS (' + d.methodMiss.length + '):');
+      d.methodMiss.forEach(function(m) { lines.push('  ' + m.cls + '.' + m.method); });
+    }
+    if (d.methodDiscovered && d.methodDiscovered.length > 0) {
+      lines.push('');
+      d.methodDiscovered.forEach(function(c) { lines.push('✅ Runtime-confirmed new name (update AoeTracking.cpp):\n' + c.cls + '.' + c.watchedMethod + ' → ' + c.discovered); });
+    }
+    if (d.classCandidates && d.classCandidates.length > 0) {
+      lines.push('');
+      lines.push('🔍 Renamed class candidates (parent match):');
+      var seen = {};
+      d.classCandidates.forEach(function(c) {
+        if (!seen[c.old]) { seen[c.old] = []; }
+        seen[c.old].push(c.candidate);
+      });
+      Object.keys(seen).forEach(function(old) {
+        var friendly = d.unmatched.find(function(u) { return u.old === old; })?.friendly || old;
+        lines.push('  ' + old + ' (' + friendly + ') → ' + seen[old].join(', '));
+      });
+    }
+    var text = lines.join('\n');
+    var blob = new Blob([text], { type: 'text/plain' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'beebyte-diff-' + new Date().toISOString().slice(0,10) + '.txt';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function loadBeebyteData() {
+    var statusBar = document.getElementById('bb-status-bar');
+    if (!statusBar) return;
+    statusBar.textContent = 'Loading…';
+    fetch('/api/beebyte')
+      .then(function(r) { return r.json(); })
+      .then(function(d) { _bbData = d; applyBeebyteData(d); })
+      .catch(function(e) {
+        statusBar.style.background = '#2a0a0a';
+        statusBar.style.color = '#f44';
+        statusBar.textContent = 'Error fetching data: ' + e.message;
+      });
+  }
+
+  function applyBeebyteData(d) {
+    var statusBar = document.getElementById('bb-status-bar');
+    if (!statusBar) return;
+    var noClassmap = !d.classmapLoaded;
+    var allOk = !noClassmap && d.unmatched.length === 0 && d.fieldMiss.length === 0 && d.methodMiss.length === 0;
+    statusBar.style.background = noClassmap ? '#1a1a00' : (allOk ? '#0a2a0a' : '#2a0a0a');
+    statusBar.style.color      = noClassmap ? '#fa4'    : (allOk ? '#4f4'    : '#f66');
+    if (noClassmap) {
+      statusBar.textContent = '⚠️ No classmap yet — launch game to generate C:\\Users\\Public\\re_classmap.txt';
+    } else if (allOk) {
+      statusBar.textContent = '✅ All clear — DLL fully operational for current game version';
+    } else {
+      var issues = [];
+      if (d.unmatched.length)  issues.push(d.unmatched.length + ' renamed class(es)');
+      if (d.fieldMiss.length)  issues.push(d.fieldMiss.length + ' missing field(s)');
+      if (d.methodMiss.length) issues.push(d.methodMiss.length + ' missing hook method(s)');
+      statusBar.textContent = '⚠️ Issues: ' + issues.join(' · ');
+    }
+    var ts = document.getElementById('bb-last-updated');
+    if (ts && d.lastUpdated) ts.textContent = 'Scanned: ' + new Date(d.lastUpdated).toLocaleTimeString();
+
+    var sc = document.getElementById('bb-stat-classes');
+    var ss = document.getElementById('bb-stat-classes-sub');
+    if (sc) sc.textContent = d.alive.length + ' / ' + (d.alive.length + d.unmatched.length);
+    if (ss) ss.textContent = d.unmatched.length ? '⚠️ ' + d.unmatched.length + ' renamed' : (d.classmapLoaded ? '✅ all present' : '—');
+
+    var fc = document.getElementById('bb-stat-fields');
+    var fs = document.getElementById('bb-stat-fields-sub');
+    if (fc) fc.textContent = d.fieldOk.length + ' / ' + (d.fieldOk.length + d.fieldMiss.length);
+    if (fs) fs.textContent = d.fieldMiss.length ? '⚠️ ' + d.fieldMiss.length + ' missing' : (d.classmapLoaded ? '✅ all found' : '—');
+
+    var mc = document.getElementById('bb-stat-methods');
+    var ms = document.getElementById('bb-stat-methods-sub');
+    if (mc) mc.textContent = d.methodOk.length + ' / ' + (d.methodOk.length + d.methodMiss.length);
+    if (ms) ms.textContent = d.methodMiss.length ? '⚠️ ' + d.methodMiss.length + ' missing' : (d.classmapLoaded ? '✅ all found' : '—');
+
+    var searchEl = document.getElementById('bb-search');
+    if (searchEl) { searchEl.oninput = function() { paintBeebyteResults(_bbData, this.value.toLowerCase()); }; }
+    paintBeebyteResults(d, searchEl ? searchEl.value.toLowerCase() : '');
+  }
+
+  function paintBeebyteResults(d, q) {
+    var el = document.getElementById('bb-results');
+    if (!el || !d) return;
+    var html = '';
+
+    if (d.unmatched.length > 0) {
+      var rows = d.unmatched.filter(function(u) { return !q || u.old.toLowerCase().includes(q) || u.friendly.toLowerCase().includes(q); });
+      if (rows.length) {
+        html += '<div style="margin-bottom:12px;"><div style="color:#f88;font-weight:bold;margin-bottom:5px;">⚠️ Renamed classes (need patch):</div>';
+        rows.forEach(function(u) { html += '<div style="padding:2px 0;color:#f88;">' + u.old + ' <span style="opacity:.5;">→ ' + u.friendly + '</span></div>'; });
+        html += '</div>';
+      }
+    }
+
+    if (d.fieldMiss.length > 0) {
+      var rows2 = d.fieldMiss.filter(function(f) { return !q || f.cls.toLowerCase().includes(q) || f.field.toLowerCase().includes(q); });
+      if (rows2.length) {
+        html += '<div style="margin-bottom:12px;"><div style="color:#fa4;font-weight:bold;margin-bottom:5px;">⚠️ Missing fields:</div>';
+        rows2.forEach(function(f) { html += '<div style="padding:2px 0;color:#fa4;">' + f.cls + '.<span style="opacity:.85;">' + f.field + '</span></div>'; });
+        html += '</div>';
+      }
+    }
+
+    if (d.methodMiss.length > 0) {
+      var rows3 = d.methodMiss.filter(function(m) { return !q || m.cls.toLowerCase().includes(q) || m.method.toLowerCase().includes(q); });
+      if (rows3.length) {
+        html += '<div style="margin-bottom:12px;"><div style="color:#fa4;font-weight:bold;margin-bottom:5px;">⚠️ Missing hook methods:</div>';
+        rows3.forEach(function(m) { html += '<div style="padding:2px 0;color:#fa4;">' + m.cls + '.' + m.method + '</div>'; });
+        html += '</div>';
+      }
+    }
+
+    if (d.methodDiscovered && d.methodDiscovered.length > 0) {
+      var rows5 = d.methodDiscovered.filter(function(c) { return !q || c.cls.toLowerCase().includes(q) || c.watchedMethod.toLowerCase().includes(q) || c.discovered.toLowerCase().includes(q); });
+      if (rows5.length) {
+        html += '<div style="margin-bottom:12px;"><div style="color:#4f4;font-weight:bold;margin-bottom:5px;">✅ Runtime-confirmed new name (update AoeTracking.cpp):</div>';
+        rows5.forEach(function(c) {
+          html += '<div style="padding:2px 0;color:#4f4;">' + c.cls + '.<span style="opacity:.5;text-decoration:line-through;">' + c.watchedMethod + '</span>'
+            + ' → <span style="font-weight:bold;">' + c.discovered + '</span></div>';
+        });
+        html += '</div>';
+      }
+    }
+
+    if (d.methodCandidates && d.methodCandidates.length > 0) {
+      var rows4 = d.methodCandidates.filter(function(c) { return !q || c.cls.toLowerCase().includes(q) || c.watchedMethod.toLowerCase().includes(q) || c.candidate.toLowerCase().includes(q); });
+      if (rows4.length) {
+        html += '<div style="margin-bottom:12px;"><div style="color:#7af;font-weight:bold;margin-bottom:5px;">🔍 Renamed method candidates (signature match):</div>';
+        rows4.forEach(function(c) {
+          html += '<div style="padding:2px 0;color:#7af;">' + c.cls + '.<span style="opacity:.5;text-decoration:line-through;">' + c.watchedMethod + '</span>'
+            + ' → <span style="color:#adf;">' + c.candidate + '</span>'
+            + ' <span style="opacity:.45;font-size:10px;">(' + c.ptypes + ')</span></div>';
+        });
+        html += '</div>';
+      }
+    }
+
+    if (d.classCandidates && d.classCandidates.length > 0) {
+      var ccRows = d.classCandidates.filter(function(c) { return !q || c.old.toLowerCase().includes(q) || c.friendly.toLowerCase().includes(q) || c.candidate.toLowerCase().includes(q); });
+      if (ccRows.length) {
+        html += '<div style="margin-bottom:12px;"><div style="color:#fa7;font-weight:bold;margin-bottom:5px;">🔍 Renamed class candidates (parent match):</div>';
+        var lastOld = null;
+        ccRows.forEach(function(c) {
+          if (c.old !== lastOld) {
+            if (lastOld !== null) html += '<div style="height:3px;"></div>';
+            html += '<div style="padding:2px 0;color:#fa7;"><span style="opacity:.5;text-decoration:line-through;">' + c.old + '</span>'
+              + ' <span style="opacity:.45;font-size:10px;">(' + c.friendly + ')</span> →</div>';
+            lastOld = c.old;
+          }
+          html += '<div style="padding:1px 0 1px 16px;color:#fca;">' + c.candidate + '</div>';
+        });
+        html += '</div>';
+      }
+    }
+
+    if (q && d.classmap && d.classmap.length) {
+      var matches = d.classmap.filter(function(c) { return c.n.toLowerCase().includes(q) || c.p.toLowerCase().includes(q) || (c.f && c.f.toLowerCase().includes(q)); });
+      if (matches.length) {
+        html += '<div style="margin-bottom:6px;opacity:.6;font-size:11px;">Classmap results (' + matches.length + '):</div>';
+        matches.slice(0, 60).forEach(function(c) {
+          html += '<div style="padding:1px 0;"><span style="color:#7af;">' + c.n + '</span> <span style="opacity:.35;">→</span> <span style="opacity:.55;">' + c.p + '</span>';
+          if (c.f) html += ' <span style="opacity:.35;font-size:10px;">[' + c.f + ']</span>';
+          html += '</div>';
+        });
+        if (matches.length > 60) html += '<div style="opacity:.4;font-size:11px;">… and ' + (matches.length - 60) + ' more</div>';
+      } else {
+        html += '<div style="opacity:.4;">No classmap results for "' + q + '".</div>';
+      }
+    }
+
+    if (!q && d.classmapLoaded && d.unmatched.length === 0 && d.fieldMiss.length === 0 && d.methodMiss.length === 0) {
+      html += '<div style="color:#4f4;padding:6px 0;">✅ No issues. All tracked names present in current binary.</div>';
+      html += '<div style="opacity:.45;font-size:11px;padding-top:4px;">Use the search box to look up any class name or friendly name.</div>';
+    }
+
+    el.innerHTML = html;
   }
 
   // ─── Damage Sniffer tab rendering ───────────────────────
@@ -17796,16 +18012,9 @@
     logEl.innerHTML = '';
     var runningScript = getRunningScriptForLog();
     var runningId = runningScript ? String(runningScript.id || '') : '';
-    if (!runningId) {
-      var noRunning = document.createElement('div');
-      noRunning.className = 'scripts-log-empty';
-      noRunning.textContent = 'Start a script to see its SDK log here.';
-      logEl.appendChild(noRunning);
-      return;
-    }
     var query = scriptsLogSearch.trim().toLowerCase();
     var rows = scriptsLogBuffer.filter(function (entry) {
-      if (entry.id !== runningId) return false;
+      if (runningId && scriptsLogScriptFilter === 'all' && entry.id !== runningId) return false;
       if (scriptsLogLevelFilter !== 'all' && entry.level !== scriptsLogLevelFilter) return false;
       if (scriptsLogScriptFilter !== 'all' && entry.id !== scriptsLogScriptFilter) return false;
       if (!query) return true;
@@ -17814,17 +18023,19 @@
     if (!rows.length) {
       var empty = document.createElement('div');
       empty.className = 'scripts-log-empty';
-      empty.textContent = 'No log output yet for ' + getScriptDisplayName(runningScript) + '.';
+      empty.textContent = scriptsLogBuffer.length ? 'No matching log entries.' : 'Start a script to see its SDK log here.';
       logEl.appendChild(empty);
       return;
     }
     rows.slice(-500).forEach(function (entry) {
       var row = document.createElement('div');
       row.className = 'scripts-log-line scripts-log-line--' + entry.level;
+      var prefix = entry.id ? '[' + entry.id + '] ' : '';
+      var displayLine = (prefix && entry.line.startsWith(prefix)) ? entry.line.slice(prefix.length) : entry.line;
       row.innerHTML =
         '<span class="scripts-log-time">' + escapeHtml(entry.time) + '</span>' +
         (entry.id ? '<span class="scripts-log-id">[' + escapeHtml(entry.id) + ']</span>' : '') +
-        '<span class="scripts-log-text">' + escapeHtml(entry.line) + '</span>';
+        '<span class="scripts-log-text">' + escapeHtml(displayLine) + '</span>';
       logEl.appendChild(row);
     });
     if (scriptsLogAutoScroll) logEl.scrollTop = logEl.scrollHeight;
@@ -18038,26 +18249,31 @@
     form.className = 'scripts-create-form';
     form.innerHTML =
       '<div class="scripts-create-title">New script</div>' +
-      '<input id="scripts-create-folder" class="scripts-filter-input" placeholder="folder-name (no spaces)" spellcheck="false" />' +
-      '<input id="scripts-create-display" class="scripts-filter-input" placeholder="Display name" spellcheck="false" />' +
+      '<input id="scripts-create-display" class="scripts-filter-input" placeholder="Script name" spellcheck="false" />' +
+      '<div id="scripts-create-slug" class="scripts-create-slug"></div>' +
       '<div class="scripts-create-actions">' +
       '<button type="button" id="scripts-create-submit" class="setting-btn">Create</button>' +
       '<button type="button" id="scripts-create-cancel" class="setting-btn setting-btn-secondary">Cancel</button>' +
       '</div>';
     sidebar.appendChild(form);
-    var folderInput = document.getElementById('scripts-create-folder');
     var displayInput = document.getElementById('scripts-create-display');
+    var slugEl = document.getElementById('scripts-create-slug');
     var submitBtn = document.getElementById('scripts-create-submit');
     var cancelBtn = document.getElementById('scripts-create-cancel');
+    function toSlug(s) { return s.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64); }
+    if (displayInput) displayInput.addEventListener('input', function () {
+      var slug = toSlug(displayInput.value);
+      if (slugEl) slugEl.textContent = slug ? 'Folder: ' + slug : '';
+    });
     if (cancelBtn) cancelBtn.addEventListener('click', function () { form.remove(); });
     if (submitBtn) submitBtn.addEventListener('click', function () {
-      var folder = (folderInput ? folderInput.value : '').trim();
       var display = (displayInput ? displayInput.value : '').trim();
-      if (!folder) { if (folderInput) folderInput.focus(); return; }
-      createNewScript(folder, display || folder);
+      var folder = toSlug(display);
+      if (!folder) { if (displayInput) displayInput.focus(); return; }
+      createNewScript(folder, display);
       form.remove();
     });
-    if (folderInput) folderInput.focus();
+    if (displayInput) displayInput.focus();
   }
 
   function createNewScript(folderName, displayName) {

@@ -3,6 +3,7 @@ import https from 'https';
 import net from 'net';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, statSync } from 'fs';
 import { join, extname, dirname, basename, resolve } from 'path';
+import { fileURLToPath } from 'url';
 import sharp from 'sharp';
 import { execFileSync, spawn } from 'child_process';
 // NOTE: DevServer runs in a forked Node child process (electron/main.cjs
@@ -316,6 +317,199 @@ interface DashboardAccountOverviewCacheRecord {
   email: string;
   updatedAt: number;
   overview: DashboardAccountOverview;
+}
+
+// ── BeeByte Monitor helpers ──────────────────────────────────────────────────
+
+const BEEBYTE_WATCH_FIELDS: Record<string, string[]> = {
+  KJMONHENJEN: ['CLFEOFKBNEJ','PKEECFNFEIO','HFDNHJFNEKA','OBAKMCCDBJA','MPGOFIHIDML','HHPOJBFICAH','IOKKOCEAJNA','KEDBLBJIKCB','DGNPJNFGFPE'],
+  LKHPPBEGNOM: ['KJNHLADHEMH','NCBIICBDGAG','HODJPKFINKF','DPGEBOCBKEF','COHCKAPOLCA','ECGPFJKCCAN','ECHAFMAAKMD'],
+  FKALGHJIADI: ['HCMECDPHEMC','HKPOMIBEGPK','FMHMGKEPIDN','NEDCKPIIIPN','DAGEMHFLJLK','BINDBHJLPMG','PPBLNMIMIFP','CGCMALPMMJL','BHJFNEAHAOE','GDNEBFDDDKM'],
+  HJMBOMEHGDJ: ['OCLNLBHDEFK','DFALIKKKGLI','KHIHFNACEKJ','CIOIHEOEAEB','ONABHKFOJNE','NOJEHIAOAJM','IMAOBDCMPHC','FIAJOKGHGGK','HOMNPDGNOMO'],
+  HBEAKBIHANL: ['HHFDCMIIIHF','FOMOIBCKIFP','FFFFKPDHEFP','DBNNDLKNECM'],
+  CMFPKCJHKKB: ['MFEJMAABLIL','BMGKCKHOIOH','LFKLKFIEMAH','MCMDAGNIGEB','KHMCMAHEBNG','FNCCEGBHNKG','LCHPDCNHJCA','JKIDGAADOLC'],
+};
+const BEEBYTE_WATCH_METHODS: Record<string, string[]> = {
+  LKHPPBEGNOM: ['ELCBJAFBLJG','ACCKOGJECPB'],
+  HJMBOMEHGDJ: ['NKCFKIEHJGP'],   // was CGBILOJJPEI — confirmed by runtime probe
+  GJJCEFJMNMK: ['KOBMINBDOBD'],
+};
+
+// Signature hints for locating renamed methods by param signature when exact name is missing.
+// Format: cls → watchedMethodName → { nparams, ptype0 (first param type prefix) }
+// COEFCBBIBMC (ShowEffect packet) extends OODFCLBKDJJ (base packet class).
+// IL2CPP emits the DECLARED param type, so all 43 ShowEffect-family handlers
+// show as OODFCLBKDJJ in the dump. We surface all of them as candidates and
+// let the user pick the right one via runtime verification in AoeTracking.cpp.
+const BEEBYTE_METHOD_SIG_HINTS: Record<string, Record<string, { nparams: number; ptype0: string }>> = {
+  HJMBOMEHGDJ: { NKCFKIEHJGP: { nparams: 1, ptype0: 'OODFCLBKDJJ' } },
+};
+
+// Parent class for each dead (renamed) class, from the old il2cpp-types.h inheritance chain.
+// Used to find candidate new names: search the classmap for classes whose parent matches.
+// A dead-parent value is resolved recursively from its own candidates first.
+const BEEBYTE_CLASS_PARENT_HINTS: Record<string, string> = {
+  HBEAKBIHANL: 'KJMONHENJEN',   // Projectile : MapObject
+  // BJLDGDKMPFL (LaserProjectile) merged into HBEAKBIHANL — no new class
+  LKFFPGONEOB: 'KJMONHENJEN',   // ArcEffectBase : MapObject
+  FHOHCELBPDO: 'LKFFPGONEOB',   // ThrowableLandingCircle : ArcEffectBase (dead parent)
+  GJJCEFJMNMK: 'LKHPPBEGNOM',   // ThrowableArcManager : Character
+  FGOFPGIIEPC: 'EGOGOKPFFIP',   // ExplosionRingEffect : EffectBase (dead parent)
+  EGOGOKPFFIP: '',               // EffectBase : parent unknown
+  ACHGMIOPGHO: 'MDNJLFGABNO',   // ExplosionManager (was GPIHDKKCBLM) : CustomExplosionEntrance parent
+  APEMKOIBOKC: '',               // EnchantContext : parent unknown
+  IIGBIIMBAHA: '',               // EnchantBucketEntry : parent unknown
+  INDFJNIFFKP: '',               // EnchantType : parent unknown
+  KDGCLPHPPBI: '',               // ProjectileData : parent unknown
+  AAGOIIEJOMO: '',               // QuestObject : parent unknown
+  AMKGEOMDELF: '',               // StateMachine : parent unknown
+  OJJKDJKBMBB: '',               // ThrowableArcData : parent unknown
+  PLCDNEMOJGO: '',               // EffectSpawner : parent unknown
+  IEBBHLLOKNK: '',               // ProjectileSpawnManager : parent unknown
+};
+
+function parseBeebyteMapping(text: string): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.match(/^(\S+)\s+->\s+(.+)$/);
+    if (match) m.set(match[1].trim(), match[2].trim());
+  }
+  return m;
+}
+
+function buildBeebytePayload() {
+  // Locate workspace root (5 levels above DevServer.ts in sandbox/client/src/dev/server/)
+  const wsRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', '..');
+  const cmPath   = 'C:\\Users\\Public\\re_classmap.txt';
+  const deadPath = join(wsRoot, 'sandbox', 'beebyte-dead.txt');
+  const alivePath = join(wsRoot, 'sandbox', 'beebyte-alive.txt');
+
+  // Parse dead/alive mappings
+  const dead  = existsSync(deadPath)  ? parseBeebyteMapping(readFileSync(deadPath,  'utf8')) : new Map<string, string>();
+  const alive = existsSync(alivePath) ? parseBeebyteMapping(readFileSync(alivePath, 'utf8')) : new Map<string, string>();
+
+  // Parse classmap
+  const classmapLoaded = existsSync(cmPath);
+  const classes = new Map<string, string>();
+  const fields  = new Map<string, Set<string>>();
+  // methods: className → methodName → { nparams, ptypes }
+  const methods = new Map<string, Map<string, { nparams: number; ptypes: string }>>();
+  let lastUpdated: number | null = null;
+
+  if (classmapLoaded) {
+    try {
+      lastUpdated = statSync(cmPath).mtimeMs;
+      let section = '', curClass = '';
+      for (const raw of readFileSync(cmPath, 'utf8').split(/\r?\n/)) {
+        const line = raw.trim();
+        if (!line) continue;
+        const fM = line.match(/^=== FIELDS:(\S+) ===$/);
+        const mM = line.match(/^=== METHODS:(\S+) ===$/);
+        if (line === '=== ALL CLASSES ===') { section = 'c'; continue; }
+        if (fM) { section = 'f'; curClass = fM[1]!; fields.set(curClass, new Set()); continue; }
+        if (mM) { section = 'm'; curClass = mM[1]!; methods.set(curClass, new Map()); continue; }
+        if (line.startsWith('===')) { section = ''; continue; }
+        if (section === 'c') { const [n, p] = line.split('\t'); if (n && p) classes.set(n, p); }
+        else if (section === 'f') { const n = line.split('\t')[0]; if (n) fields.get(curClass)?.add(n); }
+        else if (section === 'm') {
+          // line format: methodName\tnparams\tptypes\tRVA
+          const parts = line.split('\t');
+          const n = parts[0];
+          if (n) methods.get(curClass)?.set(n, { nparams: parseInt(parts[1] ?? '0', 10), ptypes: parts[2] ?? '' });
+        }
+      }
+    } catch { /* ignore parse errors */ }
+  }
+
+  // Build combined name→friendly map for search
+  const friendlyMap = new Map<string, string>([...dead, ...alive]);
+
+  // Status computation
+  const aliveList: string[] = [];
+  const unmatched: Array<{ old: string; friendly: string }> = [];
+  for (const [oldName, friendly] of dead) {
+    if (classes.has(oldName)) aliveList.push(oldName);
+    else unmatched.push({ old: oldName, friendly });
+  }
+
+  const fieldOk: Array<{ cls: string; field: string }> = [];
+  const fieldMiss: Array<{ cls: string; field: string }> = [];
+  for (const [cls, fNames] of Object.entries(BEEBYTE_WATCH_FIELDS)) {
+    const live = fields.get(cls);
+    for (const f of fNames) (live?.has(f) ? fieldOk : fieldMiss).push({ cls, field: f });
+  }
+
+  const methodOk: Array<{ cls: string; method: string }> = [];
+  const methodMiss: Array<{ cls: string; method: string }> = [];
+  for (const [cls, mNames] of Object.entries(BEEBYTE_WATCH_METHODS)) {
+    const live = methods.get(cls);
+    for (const m of mNames) (live?.has(m) ? methodOk : methodMiss).push({ cls, method: m });
+  }
+
+  // Signature-based candidate search for missing methods
+  const methodCandidates: Array<{ cls: string; watchedMethod: string; candidate: string; ptypes: string }> = [];
+  for (const { cls, method } of methodMiss) {
+    const hint = BEEBYTE_METHOD_SIG_HINTS[cls]?.[method];
+    if (!hint) continue;
+    const live = methods.get(cls);
+    if (!live) continue;
+    for (const [name, sig] of live) {
+      if (sig.nparams === hint.nparams && sig.ptypes.startsWith(hint.ptype0)) {
+        methodCandidates.push({ cls, watchedMethod: method, candidate: name, ptypes: sig.ptypes });
+      }
+    }
+  }
+
+  // Parent-based candidate search for renamed classes.
+  // Process alive-parent entries first so dead-parent entries can use their resolved candidates.
+  const classCandidates: Array<{ old: string; friendly: string; candidate: string }> = [];
+  const resolvedClassCandidates = new Map<string, string[]>();
+  const deadSet = new Set(unmatched.map(u => u.old));
+
+  function resolveClassParent(deadName: string): string | null {
+    const hint = BEEBYTE_CLASS_PARENT_HINTS[deadName];
+    if (hint === undefined) return null;
+    if (!hint) return null;                              // explicitly unknown
+    if (!deadSet.has(hint)) return hint;                 // parent is alive — use directly
+    return resolvedClassCandidates.get(hint)?.[0] ?? null; // parent dead — use first candidate
+  }
+
+  const aliveParentFirst = [...unmatched].sort((a, b) => {
+    const pa = BEEBYTE_CLASS_PARENT_HINTS[a.old] ?? '';
+    const pb = BEEBYTE_CLASS_PARENT_HINTS[b.old] ?? '';
+    return (deadSet.has(pa) ? 1 : 0) - (deadSet.has(pb) ? 1 : 0);
+  });
+
+  for (const { old: oldName, friendly } of aliveParentFirst) {
+    const parent = resolveClassParent(oldName);
+    if (!parent) continue;
+    const found: string[] = [];
+    for (const [cls, par] of classes) {
+      if (par !== parent) continue;
+      if (!/^[A-Z]{11}$/.test(cls)) continue;  // obfuscated names only
+      found.push(cls);
+      classCandidates.push({ old: oldName, friendly, candidate: cls });
+    }
+    resolvedClassCandidates.set(oldName, found);
+  }
+
+  // Compact classmap for search (n=name, p=parent, f=friendly if known)
+  const classmapArr = Array.from(classes.entries()).map(([n, p]) => {
+    const f = friendlyMap.get(n);
+    return f ? { n, p, f } : { n, p };
+  });
+
+  // Check for runtime-discovered method names written by the DLL probe
+  const discoveryPath = 'C:\\Users\\Public\\re_showeffect_discovery.txt';
+  const methodDiscovered: Array<{ cls: string; watchedMethod: string; discovered: string }> = [];
+  if (existsSync(discoveryPath)) {
+    try {
+      const name = readFileSync(discoveryPath, 'utf8').trim().split(/\r?\n/)[0]?.trim();
+      if (name) methodDiscovered.push({ cls: 'HJMBOMEHGDJ', watchedMethod: 'NKCFKIEHJGP', discovered: name });
+    } catch { /* ignore */ }
+  }
+
+  return { classmapLoaded, lastUpdated, alive: aliveList, unmatched, fieldOk, fieldMiss, methodOk, methodMiss, methodCandidates, methodDiscovered, classCandidates, classmap: classmapArr };
 }
 
 /**
@@ -2329,6 +2523,11 @@ export class DevServer {
   private handleHttp(req: http.IncomingMessage, res: http.ServerResponse): void {
     if (this.tryServeWikiTextureFile(req, res)) return;
     // API endpoints
+    if (req.url === '/api/beebyte' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(buildBeebytePayload()));
+      return;
+    }
     if (req.url === '/api/plugins' && req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(this.pluginManager.getPlugins()));
