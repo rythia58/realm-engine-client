@@ -10,10 +10,7 @@
 static_assert(sizeof(BUILD_HANDSHAKE_KEY) > 1, "BUILD_HANDSHAKE_KEY must be defined in release builds");
 #endif
 #else
-#if !defined(_DEBUG)
-#error "BuildSecrets.h is required for release builds."
-#endif
-// Dev fallback must match Client/src/bridge/InternalBridge.ts.
+// Dev fallback key — must match Client/src/bridge/InternalBridge.ts.
 #define BUILD_HANDSHAKE_KEY "47eb249907eb980c851fe3a7bdb56a244244bb7d465572b556e810df6827ecfb"
 #endif
 

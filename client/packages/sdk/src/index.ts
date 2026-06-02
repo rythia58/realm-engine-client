@@ -55,6 +55,12 @@ export type {
   GuildNearbyMatchMode,
   PlayerJoinPartyEvent,
   PlayerJoinPartyMatchMode,
+  RealmClosedEvent,
+  DungeonEnteredEvent,
+  DungeonExitedEvent,
+  BeaconObject,
+  WalkResult,
+  WalkOptions,
 } from './types/events';
 export type { InventoryItem, InventoryBackpackTier } from './types/inventory';
 export type {

@@ -570,6 +570,24 @@ export class GameWorldState {
     return matches;
   }
 
+  getBeaconsSorted(
+    gameData: GameDataLoader,
+    origin: { x: number; y: number },
+    maxDistance?: number,
+  ): Array<{ objectId: number; objectType: number; x: number; y: number; dist: number; name: string }> {
+    const matches: Array<{ objectId: number; objectType: number; x: number; y: number; dist: number; name: string }> = [];
+    for (const e of this.entities.values()) {
+      if (gameData.getObjectCategory(e.objectType) !== 'Beacon') continue;
+      const dist = Math.hypot(e.pos.x - origin.x, e.pos.y - origin.y);
+      if (maxDistance != null && dist > maxDistance) continue;
+      const def = gameData.getObject(e.objectType);
+      const name = def?.displayId || def?.id || `0x${e.objectType.toString(16)}`;
+      matches.push({ objectId: e.objectId, objectType: e.objectType, x: e.pos.x, y: e.pos.y, dist, name });
+    }
+    matches.sort((a, b) => a.dist - b.dist);
+    return matches;
+  }
+
   /** Returns the tile type at tile coordinates (floor of world position), or undefined if unknown. */
   getTileAt(tileX: number, tileY: number): number | undefined {
     return this.tileMap.get((tileX << 16) | tileY);

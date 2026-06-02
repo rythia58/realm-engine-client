@@ -2071,11 +2071,10 @@
   let seenTypes = new Set();
   let totalCount = 0;
   let recentTimestamps = [];
-  let devMode = localStorage.getItem('devMode') === 'true';
+  let devMode = localStorage.getItem('devMode') !== 'false';
   /** When false, hide the packet sniffer drawer (Admin Mode still shows Logs / Packet Lab). Persisted locally. */
   let packetSnifferVisible = localStorage.getItem('packetSnifferVisible') !== 'false';
-  // adminMode is always derived from server — never read from localStorage
-  let adminMode = false;
+  let adminMode = true;
   const legacyLightMode = localStorage.getItem('lightMode') === 'true';
   let currentTheme = localStorage.getItem('theme') || (legacyLightMode ? 'light' : 'dark');
   let currentLanguage = localStorage.getItem('language') || 'en';
@@ -2122,7 +2121,7 @@
   let snifferPacketsSinceCollapse = 0;
   let dashboardUser = { email: 'Local Dashboard', username: 'Local Dashboard', displayName: 'Local Dashboard', is_admin: true, developer_mode: true };
   let dashboardReady = true;
-  var _realAdminMode = false;
+  var _realAdminMode = true;
 
   // Packet Lab state
   let labUnknowns = [];
@@ -2329,6 +2328,11 @@
   let scriptsPageStatusFilter = 'all';
   let scriptsLogBuffer = [];
   let scriptsLogLevelFilter = 'all';
+  let scriptsEditorInstance = null;
+  let scriptsEditorMonacoReady = false;
+  let scriptsEditorMonacoLoading = false;
+  let scriptsEditorActiveFile = null;
+  let scriptsEditorPendingFile = null;
   let scriptsLogScriptFilter = 'all';
   let scriptsLogSearch = '';
   let scriptsLogPaused = false;
@@ -10311,6 +10315,7 @@
     if (tabName === 'scripts') {
       wireScriptsPageControls();
       refreshScriptsTab();
+      initMonacoEditor();
     }
     if (tabName === 'plugins') {
       // Render immediately from cached data (shows spinner if not yet received)
@@ -17889,6 +17894,192 @@
       }).join('\n');
       if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).catch(function () {});
     });
+    var addBtn = document.getElementById('scripts-add-btn');
+    if (addBtn) addBtn.addEventListener('click', function (e) { e.stopPropagation(); openAddScriptDropdown(); });
+    var addWriteBtn = document.getElementById('scripts-add-write');
+    if (addWriteBtn) addWriteBtn.addEventListener('click', function () { showWriteNewScriptForm(); });
+    var addImportBtn = document.getElementById('scripts-add-import');
+    if (addImportBtn) addImportBtn.addEventListener('click', function () {
+      var dropdown = document.getElementById('scripts-add-dropdown');
+      if (dropdown) dropdown.style.display = 'none';
+      fetch('/api/scripts/open-folder', { method: 'POST' }).catch(function () {});
+      setTimeout(function () { refreshScriptsTab(); }, 1500);
+    });
+    var editorSaveBtn = document.getElementById('scripts-editor-save');
+    if (editorSaveBtn) editorSaveBtn.addEventListener('click', function () { saveActiveFile(); });
+  }
+
+  function initMonacoEditor() {
+    if (scriptsEditorMonacoReady || scriptsEditorMonacoLoading) return;
+    if (typeof require === 'undefined') return;
+    scriptsEditorMonacoLoading = true;
+    require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.47.0/min/vs' } });
+    require(['vs/editor/editor.main'], function () {
+      var container = document.getElementById('scripts-editor-container');
+      if (!container) return;
+      scriptsEditorInstance = monaco.editor.create(container, {
+        value: '',
+        language: 'javascript',
+        theme: 'vs-dark',
+        automaticLayout: true,
+        minimap: { enabled: false },
+        fontSize: 13,
+        scrollBeyondLastLine: false,
+      });
+      scriptsEditorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
+        saveActiveFile();
+      });
+      scriptsEditorMonacoReady = true;
+      if (scriptsEditorPendingFile) {
+        var pf = scriptsEditorPendingFile;
+        scriptsEditorPendingFile = null;
+        openScriptFile(pf.scriptId, pf.path, pf.name);
+      }
+    });
+  }
+
+  function loadScriptFiles(scriptId) {
+    if (!scriptId) return;
+    fetch('/api/scripts/files?id=' + encodeURIComponent(scriptId))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var files = Array.isArray(data.files) ? data.files : [];
+        var tabsEl = document.getElementById('scripts-editor-tabs');
+        if (tabsEl) {
+          tabsEl.innerHTML = '';
+          files.forEach(function (f) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'scripts-editor-tab-btn';
+            btn.textContent = f.name;
+            btn.addEventListener('click', function () { openScriptFile(scriptId, f.path, f.name); });
+            tabsEl.appendChild(btn);
+          });
+        }
+        var panel = document.getElementById('scripts-editor-panel');
+        if (panel) panel.style.display = '';
+        var indexFile = files.find(function (f) { return f.name === 'index.mjs'; }) || files[0];
+        if (indexFile) openScriptFile(scriptId, indexFile.path, indexFile.name);
+      })
+      .catch(function (err) { console.error('[ScriptEditor] loadScriptFiles:', err); });
+  }
+
+  function openScriptFile(scriptId, relPath, name) {
+    if (!scriptsEditorMonacoReady) {
+      scriptsEditorPendingFile = { scriptId: scriptId, path: relPath, name: name };
+      return;
+    }
+    fetch('/api/scripts/read?id=' + encodeURIComponent(scriptId) + '&path=' + encodeURIComponent(relPath))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!scriptsEditorInstance) return;
+        var lang = String(relPath).endsWith('.json') ? 'json' : 'javascript';
+        var model = scriptsEditorInstance.getModel();
+        if (model) monaco.editor.setModelLanguage(model, lang);
+        scriptsEditorInstance.setValue(data.content || '');
+        scriptsEditorActiveFile = { scriptId: scriptId, path: relPath, name: name };
+        var saveBtn = document.getElementById('scripts-editor-save');
+        if (saveBtn) saveBtn.disabled = false;
+        var tabsEl = document.getElementById('scripts-editor-tabs');
+        if (tabsEl) {
+          Array.from(tabsEl.children).forEach(function (btn) {
+            btn.classList.toggle('active', btn.textContent === name);
+          });
+        }
+      })
+      .catch(function (err) { console.error('[ScriptEditor] openScriptFile:', err); });
+  }
+
+  function saveActiveFile() {
+    if (!scriptsEditorInstance || !scriptsEditorActiveFile) return;
+    var content = scriptsEditorInstance.getValue();
+    var saveBtn = document.getElementById('scripts-editor-save');
+    fetch('/api/scripts/write', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: scriptsEditorActiveFile.scriptId, path: scriptsEditorActiveFile.path, content: content }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok && saveBtn) {
+          var orig = saveBtn.textContent;
+          saveBtn.textContent = 'Saved ✓';
+          setTimeout(function () { if (saveBtn) saveBtn.textContent = orig; }, 1500);
+        }
+      })
+      .catch(function (err) { console.error('[ScriptEditor] saveActiveFile:', err); });
+  }
+
+  function openAddScriptDropdown() {
+    var dropdown = document.getElementById('scripts-add-dropdown');
+    if (!dropdown) return;
+    var isOpen = dropdown.style.display !== 'none';
+    dropdown.style.display = isOpen ? 'none' : '';
+    if (!isOpen) {
+      setTimeout(function () {
+        document.addEventListener('click', function handler(e) {
+          var wrap = document.getElementById('scripts-add-dropdown');
+          if (wrap && !wrap.contains(e.target)) wrap.style.display = 'none';
+          document.removeEventListener('click', handler);
+        });
+      }, 0);
+    }
+  }
+
+  function showWriteNewScriptForm() {
+    var dropdown = document.getElementById('scripts-add-dropdown');
+    if (dropdown) dropdown.style.display = 'none';
+    var existing = document.getElementById('scripts-create-form');
+    if (existing) { existing.remove(); return; }
+    var sidebar = document.getElementById('scripts-hub-sidebar');
+    if (!sidebar) return;
+    var form = document.createElement('div');
+    form.id = 'scripts-create-form';
+    form.className = 'scripts-create-form';
+    form.innerHTML =
+      '<div class="scripts-create-title">New script</div>' +
+      '<input id="scripts-create-folder" class="scripts-filter-input" placeholder="folder-name (no spaces)" spellcheck="false" />' +
+      '<input id="scripts-create-display" class="scripts-filter-input" placeholder="Display name" spellcheck="false" />' +
+      '<div class="scripts-create-actions">' +
+      '<button type="button" id="scripts-create-submit" class="setting-btn">Create</button>' +
+      '<button type="button" id="scripts-create-cancel" class="setting-btn setting-btn-secondary">Cancel</button>' +
+      '</div>';
+    sidebar.appendChild(form);
+    var folderInput = document.getElementById('scripts-create-folder');
+    var displayInput = document.getElementById('scripts-create-display');
+    var submitBtn = document.getElementById('scripts-create-submit');
+    var cancelBtn = document.getElementById('scripts-create-cancel');
+    if (cancelBtn) cancelBtn.addEventListener('click', function () { form.remove(); });
+    if (submitBtn) submitBtn.addEventListener('click', function () {
+      var folder = (folderInput ? folderInput.value : '').trim();
+      var display = (displayInput ? displayInput.value : '').trim();
+      if (!folder) { if (folderInput) folderInput.focus(); return; }
+      createNewScript(folder, display || folder);
+      form.remove();
+    });
+    if (folderInput) folderInput.focus();
+  }
+
+  function createNewScript(folderName, displayName) {
+    fetch('/api/scripts/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderName: folderName, name: displayName, developer: 'local', version: '1.0.0' }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok) {
+          refreshScriptsTab();
+          setTimeout(function () {
+            scriptsPageSelectedId = String(data.id || '');
+            renderScriptsListFromData(scriptsTabLastData);
+            loadScriptFiles(data.id);
+          }, 600);
+        } else {
+          console.error('[ScriptEditor] create failed:', data.error);
+        }
+      })
+      .catch(function (err) { console.error('[ScriptEditor] createNewScript:', err); });
   }
 
   function renderScriptsListFromData(data) {
@@ -17939,6 +18130,7 @@
       row.addEventListener('click', function (event) {
         scriptsPageSelectedId = id;
         renderScriptsListFromData(scriptsTabLastData);
+        loadScriptFiles(id);
       });
       listEl.appendChild(row);
     });

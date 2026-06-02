@@ -12,6 +12,8 @@ import type {
   PlayerJoinPartyEvent,
   PlayerJoinPartyMatchMode,
 } from '@realmengine/sdk';
+import type { GameDataLoader } from '../../../game-data/GameDataLoader.js';
+import { GameId } from '../../../constants/GameId.js';
 import type { BridgeDeps } from '../BridgeDeps.js';
 import type { ClientConnection } from '../../../proxy/ClientConnection.js';
 import type { Packet } from '../../../packets/Packet.js';
@@ -22,6 +24,33 @@ import { Logger } from '../../../util/Logger.js';
 type AnyHandler = (e: any) => void;
 
 const listeners: Map<string, AnyHandler[]> = new Map();
+
+// ─── Map-kind transition tracking ────────────────────────────────────────────
+
+type MapKind = 'nexus' | 'realm' | 'vault' | 'dungeon' | 'other';
+
+const prevMapKindByClient = new WeakMap<import('../../../proxy/ClientConnection.js').ClientConnection, MapKind>();
+
+let cachedDungeonNames: Set<string> | null = null;
+function getDungeonNames(gameData: GameDataLoader): Set<string> {
+  if (cachedDungeonNames) return cachedDungeonNames;
+  cachedDungeonNames = new Set<string>();
+  for (const obj of gameData.getAllObjects()) {
+    if (obj.dungeonName?.trim()) {
+      cachedDungeonNames.add(obj.dungeonName.trim().toLowerCase());
+    }
+  }
+  return cachedDungeonNames;
+}
+
+function classifyMap(mapName: string, gameId: number | undefined, gameData: GameDataLoader): MapKind {
+  const n = mapName.toLowerCase().trim();
+  if (n.includes('nexus') || gameId === GameId.Nexus) return 'nexus';
+  if (n.includes('realm of the mad god') || n === 'realm') return 'realm';
+  if (n.includes('vault') || gameId === GameId.Vault) return 'vault';
+  if (n && getDungeonNames(gameData).has(n)) return 'dungeon';
+  return 'other';
+}
 
 const lastLevelByClient = new WeakMap<ClientConnection, number>();
 const prevInvByClient = new WeakMap<ClientConnection, number[]>();
@@ -404,6 +433,12 @@ function onNewTickForScriptEvents(client: ClientConnection, packet: Packet, deps
 export function install(deps: BridgeDeps): void {
   events.onPlayerDied = (handler) => register('playerDied', handler);
 
+  events.onRealmClosed = (handler) => register('realmClosed', handler);
+
+  events.onDungeonEntered = (handler) => register('dungeonEntered', handler);
+
+  events.onDungeonExited = (handler) => register('dungeonExited', handler);
+
   events.onEnemySpawned = (handler) => register('enemySpawned', handler);
 
   events.onEnemySpawnedOfType = (objectType, handler) =>
@@ -499,6 +534,36 @@ export function install(deps: BridgeDeps): void {
     const width = Number(d.width) || 0;
     const height = Number(d.height) || 0;
     fire('mapChanged', { mapName, width, height });
+
+    // Map-kind transition events
+    const gameId = client.state?.gameId as number | undefined;
+    const newKind = classifyMap(mapName, gameId, deps.gameData);
+    const prevKind = prevMapKindByClient.get(client);
+    prevMapKindByClient.set(client, newKind);
+
+    if (prevKind !== undefined) {
+      // Always log map-kind transitions — they're infrequent and high-value for diagnostics.
+      // Format: [Events] mapKind realm → nexus | map="..." gameId=N
+      if (prevKind !== newKind) {
+        Logger.log('Events', `mapKind ${prevKind} → ${newKind} | map="${mapName}" gameId=${gameId ?? '?'}`);
+      }
+
+      if (prevKind === 'realm' && newKind === 'nexus') {
+        Logger.log('Events', `realmClosed fired | previousMapName="${mapName}"`);
+        fire('realmClosed', { previousMapName: mapName });
+      }
+      if (newKind === 'dungeon' && prevKind !== 'dungeon') {
+        Logger.log('Events', `dungeonEntered fired | dungeonName="${mapName}" from ${prevKind}`);
+        fire('dungeonEntered', { dungeonName: mapName });
+      }
+      if (prevKind === 'dungeon' && newKind !== 'dungeon') {
+        Logger.log('Events', `dungeonExited fired | previousDungeonName="${mapName}" → ${newKind}`);
+        fire('dungeonExited', { previousDungeonName: mapName });
+      }
+    } else {
+      // First MAPINFO for this client (no previous kind) — log initial state
+      Logger.log('Events', `mapKind initial=${newKind} | map="${mapName}" gameId=${gameId ?? '?'}`);
+    }
   });
 
   deps.proxy.hookPacket('CREATESUCCESS', (client, packet) => {
@@ -517,6 +582,7 @@ export function install(deps: BridgeDeps): void {
     lastLevelByClient.delete(client);
     lastCharacterFameByClient.delete(client);
     prevInvByClient.delete(client);
+    prevMapKindByClient.delete(client);
     fire('disconnected', {
       serverAddress: client.state?.conTargetAddress
         ? `${client.state.conTargetAddress}:${client.state.conTargetPort ?? 2050}`

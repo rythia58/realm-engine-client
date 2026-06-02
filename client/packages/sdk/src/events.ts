@@ -15,6 +15,9 @@ import type {
   GuildNearbyMatchMode,
   PlayerJoinPartyEvent,
   PlayerJoinPartyMatchMode,
+  RealmClosedEvent,
+  DungeonEnteredEvent,
+  DungeonExitedEvent,
 } from './types/events';
 import type { ChatHandler } from './types/chat';
 
@@ -173,6 +176,33 @@ export const events = {
    * (case-insensitive), or **contains** it if you pass **`'contains'`** as the second argument.
    */
   onPlayerJoinParty: onPlayerJoinPartyStub as OnPlayerJoinPartyFn,
+
+  /**
+   * Fires when the player transitions from a Realm map to the Nexus (realm closed or ended).
+   * Use this to trigger realm cycling logic in farming scripts.
+   */
+  onRealmClosed(handler: (e: RealmClosedEvent) => void): Unsubscribe {
+    void handler;
+    return noopUnsub;
+  },
+
+  /**
+   * Fires when the player enters a dungeon (MAPINFO transition from a non-dungeon map).
+   * `dungeonName` is the normalized display name of the dungeon.
+   */
+  onDungeonEntered(handler: (e: DungeonEnteredEvent) => void): Unsubscribe {
+    void handler;
+    return noopUnsub;
+  },
+
+  /**
+   * Fires when the player exits a dungeon (MAPINFO transition to a non-dungeon map).
+   * `previousDungeonName` is the name of the dungeon that was just left.
+   */
+  onDungeonExited(handler: (e: DungeonExitedEvent) => void): Unsubscribe {
+    void handler;
+    return noopUnsub;
+  },
 };
 
 export type {
@@ -193,4 +223,10 @@ export type {
   GuildNearbyMatchMode,
   PlayerJoinPartyEvent,
   PlayerJoinPartyMatchMode,
+  RealmClosedEvent,
+  DungeonEnteredEvent,
+  DungeonExitedEvent,
+  BeaconObject,
+  WalkResult,
+  WalkOptions,
 } from './types/events';

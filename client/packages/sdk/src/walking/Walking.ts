@@ -1,5 +1,6 @@
 import { Position } from '../types/world/Position';
 import { Enemy } from '../types/entities/Enemy';
+import type { WalkResult, WalkOptions } from '../types/events';
 
 export class Walking {
     /**
@@ -87,6 +88,15 @@ export class Walking {
     }
 
     static teleportToBeacon(objectId: number): boolean {
+        throw new Error('Must be run inside RealmEngine client');
+    }
+
+    /**
+     * Async version of walkTo — returns a Promise that resolves when the
+     * player reaches (x, y) or an exit condition occurs.
+     * Equivalent to `Walking.walkTo` but awaitable in scripts.
+     */
+    static walkToAsync(x: number, y: number, opts?: WalkOptions): Promise<WalkResult> {
         throw new Error('Must be run inside RealmEngine client');
     }
 }

@@ -3544,6 +3544,168 @@ export class DevServer {
       return;
     }
 
+    // ── Script file editor routes ─────────────────────────────────────────────
+
+    /** Resolve a script's root path from its id. Returns null if not found. */
+    const getScriptRootPath = (id: string): string | null => {
+      const sc = this.scriptHost?.list().find((s) => s.id === id);
+      return sc?.rootPath ?? null;
+    };
+
+    /** Resolve relPath inside rootPath with traversal guard. Returns null if unsafe. */
+    const safeScriptPath = (rootPath: string, relPath: string): string | null => {
+      const full = resolve(rootPath, relPath);
+      const ch = full[rootPath.length];
+      return full === rootPath || ch === '/' || ch === '\\' ? full : null;
+    };
+
+    if (req.url?.startsWith('/api/scripts/files') && req.method === 'GET') {
+      try {
+        const id = new URL(req.url, 'http://localhost').searchParams.get('id') ?? '';
+        const rootPath = getScriptRootPath(id);
+        if (!rootPath) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Script not found.' }));
+          return;
+        }
+        const entries = readdirSync(rootPath, { withFileTypes: true });
+        const files = entries
+          .filter((e) => e.isFile() && (e.name.endsWith('.mjs') || e.name.endsWith('.json')))
+          .map((e) => ({ name: e.name, path: e.name }));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ files }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: (err as Error).message }));
+      }
+      return;
+    }
+
+    if (req.url?.startsWith('/api/scripts/read') && req.method === 'GET') {
+      try {
+        const params = new URL(req.url, 'http://localhost').searchParams;
+        const id = params.get('id') ?? '';
+        const relPath = params.get('path') ?? '';
+        const rootPath = getScriptRootPath(id);
+        if (!rootPath) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Script not found.' }));
+          return;
+        }
+        const fullPath = safeScriptPath(rootPath, relPath);
+        if (!fullPath) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Invalid path.' }));
+          return;
+        }
+        const content = readFileSync(fullPath, 'utf8');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ content }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: (err as Error).message }));
+      }
+      return;
+    }
+
+    if (req.url === '/api/scripts/write' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => (body += chunk));
+      req.on('end', () => {
+        try {
+          const parsed = JSON.parse(body || '{}') as { id?: string; path?: string; content?: string };
+          const id = String(parsed.id ?? '').trim();
+          const relPath = String(parsed.path ?? '').trim();
+          const content = String(parsed.content ?? '');
+          if (!id || !relPath) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'id and path are required.' }));
+            return;
+          }
+          const ext = extname(relPath).toLowerCase();
+          if (ext !== '.mjs' && ext !== '.json') {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Only .mjs and .json files are writable.' }));
+            return;
+          }
+          const rootPath = getScriptRootPath(id);
+          if (!rootPath) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Script not found.' }));
+            return;
+          }
+          const fullPath = safeScriptPath(rootPath, relPath);
+          if (!fullPath) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Invalid path.' }));
+            return;
+          }
+          writeFileSync(fullPath, content, 'utf8');
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true }));
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: (err as Error).message }));
+        }
+      });
+      return;
+    }
+
+    if (req.url === '/api/scripts/create' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => (body += chunk));
+      req.on('end', () => {
+        try {
+          const parsed = JSON.parse(body || '{}') as {
+            folderName?: string;
+            name?: string;
+            developer?: string;
+            version?: string;
+          };
+          const rawFolder = String(parsed.folderName ?? '').trim();
+          const folderName = rawFolder.replace(/[^a-zA-Z0-9\-_]/g, '').slice(0, 64);
+          if (!folderName) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'folderName is required and must be alphanumeric.' }));
+            return;
+          }
+          const displayName = String(parsed.name ?? folderName).trim() || folderName;
+          const developer  = String(parsed.developer ?? 'local').trim() || 'local';
+          const version    = String(parsed.version ?? '1.0.0').trim() || '1.0.0';
+          const scriptsDir = this.scriptHost?.getScriptsDir() ?? null;
+          if (!scriptsDir) {
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Script host not available.' }));
+            return;
+          }
+          const scriptDir = join(scriptsDir, folderName);
+          mkdirSync(scriptDir, { recursive: true });
+          const manifest = { name: displayName, developer, version, entry: 'index.mjs' };
+          writeFileSync(join(scriptDir, 'realmengine.script.json'), JSON.stringify(manifest, null, 2), 'utf8');
+          const template = [
+            `import { RealmEngine } from '@realmengine/sdk';`,
+            `const { walking, enemies, world, events, loot, self } = RealmEngine;`,
+            ``,
+            `export default class ${displayName.replace(/[^a-zA-Z0-9]/g, '') || 'MyScript'} {`,
+            `  async onStart() {}`,
+            `  async onLoop() { return 1000; }`,
+            `  async onStop() {}`,
+            `}`,
+          ].join('\n');
+          writeFileSync(join(scriptDir, 'index.mjs'), template, 'utf8');
+          this.broadcastScriptsState();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, id: folderName }));
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: (err as Error).message }));
+        }
+      });
+      return;
+    }
+
+    // ── End script file editor routes ─────────────────────────────────────────
+
     if (req.url === '/api/client/escape' && req.method === 'POST') {
       try {
         const result = this.sendEscapePacket();

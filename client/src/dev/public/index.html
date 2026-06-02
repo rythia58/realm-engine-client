@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="api-docs.css">
   <link rel="stylesheet" href="game-wiki.css">
+  <script src="https://unpkg.com/monaco-editor@0.47.0/min/vs/loader.js"></script>
 </head>
 <body>
   <!-- View-as override banner — visible only when admin is previewing as another user -->
@@ -232,13 +233,11 @@
             <span class="launcher-quick-label">Quick Launch</span>
           </button>
           <button type="button" class="launcher-quick-btn" data-launcher-tab="plugins">Plugins</button>
-          <button type="button" class="launcher-quick-btn admin-only" data-launcher-tab="market">Market</button>
         </div>
       </div>
       <div id="content-tabs">
         <button class="content-tab active" data-tab="home" data-icon="H" data-label="Home" data-i18n="tab.home">Home</button>
         <button class="content-tab" data-tab="plugins" data-icon="P" data-label="Plugins" data-i18n="tab.plugins">Plugins</button>
-        <button class="content-tab admin-only" data-tab="market" data-icon="$" data-label="Market" data-i18n="tab.market">Market</button>
         <button class="content-tab" data-tab="accounts" data-icon="A" data-label="Accounts" data-i18n="tab.accounts">Accounts</button>
         <button class="content-tab admin-only" data-tab="logs" data-icon="L" data-label="Logs" data-i18n="tab.logs">Logs</button>
         <button class="content-tab" data-tab="damage" data-icon="D" data-label="Damage Sniffer" data-i18n="tab.damage">Damage Sniffer</button>
@@ -250,7 +249,6 @@
         <button class="content-tab dev-only" data-tab="game-wiki" data-icon="W" data-label="Game Wiki" data-i18n="tab.gameWiki">Game Wiki</button>
         <button class="content-tab dev-only" data-tab="nearby" data-icon="N" data-label="Nearby Players" data-i18n="tab.nearby">Nearby Players</button>
         <button class="content-tab admin-only" data-tab="packet-lab" data-icon="PK" data-label="Packet Lab">Packet Lab <span id="lab-tab-badge" class="lab-tab-badge hidden">0</span></button>
-        <button class="content-tab admin-only" data-tab="telemetry" data-icon="TM" data-label="Telemetry" data-i18n="tab.telemetry">Telemetry</button>
         <button class="content-tab admin-only" data-tab="multibox" data-icon="M" data-label="Multibox" data-i18n="tab.multibox">Multibox</button>
         <button class="content-tab admin-only" data-tab="mem-helper" data-icon="CPU" data-label="Mem Helper" data-i18n="tab.memHelper">Mem Helper</button>
         <button class="content-tab dev-only" data-tab="scripts" data-icon="S" data-label="Scripts" data-i18n="tab.scripts">Scripts</button>
@@ -442,45 +440,6 @@
         </div>
       </div>
 
-      <div id="tab-market" class="tab-panel admin-only" style="display:none;">
-        <div class="market-layout">
-          <aside class="market-sidebar">
-            <div class="market-brand">
-              <span class="market-brand-title">Realm Market</span>
-            </div>
-            <nav class="market-nav" id="market-nav">
-              <button type="button" class="market-nav-btn active" data-market-sub="scripts" data-i18n="tab.scripts">Scripts</button>
-              <button type="button" class="market-nav-btn" data-market-sub="maxing">Maxing</button>
-            </nav>
-            <div class="market-cart-panel">
-              <div class="market-cart-head">Cart <span id="market-cart-count" class="market-cart-badge">0</span></div>
-              <div id="market-cart-items" class="market-cart-items"></div>
-              <div class="market-cart-foot">
-                <div class="market-cart-total">Total <span id="market-cart-total-gems">0</span><span class="market-gem-label">G</span></div>
-                <button type="button" id="market-checkout-btn" class="setting-btn market-checkout-btn">Checkout</button>
-                <button type="button" id="market-cart-clear-btn" class="setting-btn setting-btn-secondary market-cart-clear">Clear</button>
-              </div>
-            </div>
-          </aside>
-          <main class="market-main">
-            <div id="market-loading" class="market-loading">Loading catalog…</div>
-            <div id="market-error" class="market-error" style="display:none;"></div>
-            <div id="market-content" class="market-content" style="display:none;">
-              <div id="market-toolbar" class="market-toolbar"></div>
-              <div id="market-body" class="market-body"></div>
-            </div>
-          </main>
-        </div>
-        <div id="market-script-buy-modal" class="market-modal" style="display:none" aria-hidden="true">
-          <div class="market-modal-backdrop" data-market-modal-close></div>
-          <div class="market-modal-panel" role="dialog" aria-modal="true" aria-labelledby="market-script-buy-modal-title">
-            <h4 id="market-script-buy-modal-title" class="market-modal-title"></h4>
-            <p class="market-modal-sub">Choose billing. Prices are in gems (G). <strong>100 gems = $1</strong> (1 gem = 1¢).</p>
-            <div id="market-script-buy-modal-actions" class="market-modal-actions"></div>
-            <button type="button" class="setting-btn setting-btn-secondary market-modal-cancel" data-market-modal-close>Cancel</button>
-          </div>
-        </div>
-      </div>
 
       <div id="tab-accounts" class="tab-panel" style="display:none;">
         <!-- Empty-state setup (shown when zero accounts) -->
@@ -1256,11 +1215,11 @@
         </div>
       </div>
 
-      <div id="tab-telemetry" class="tab-panel admin-only telemetry-tab" style="display:none;">
-        <div class="telemetry-toolbar">
-          <div class="telemetry-title-wrap">
-            <h3 class="telemetry-title">Community Telemetry</h3>
-            <span class="telemetry-sub">Anonymous client stats. No user is identifiable from this data.</span>
+      <div id="tab-telemetry" style="display:none;">
+        <div>
+          <div>
+            <h3></h3>
+            <span></span>
           </div>
           <div class="telemetry-toolbar-actions">
             <label class="telemetry-window-label">Window
@@ -1425,6 +1384,26 @@
 
       <div id="tab-internal" class="tab-panel admin-only" style="display:none;">
         <div class="internal-tab">
+          <div class="internal-hero">
+            <svg class="internal-hero-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+              <rect x="16" y="16" width="32" height="32" rx="4" fill="#238636" opacity="0.2"/>
+              <rect x="20" y="20" width="24" height="24" rx="2" fill="#238636" opacity="0.4"/>
+              <rect x="24" y="24" width="16" height="16" rx="2" fill="#3fb950"/>
+              <rect x="28" y="28" width="8" height="8" rx="1" fill="#161b22"/>
+              <rect x="10" y="30" width="6" height="4" rx="1" fill="#3fb950"/>
+              <rect x="48" y="30" width="6" height="4" rx="1" fill="#3fb950"/>
+              <rect x="30" y="10" width="4" height="6" rx="1" fill="#3fb950"/>
+              <rect x="30" y="48" width="4" height="6" rx="1" fill="#3fb950"/>
+              <rect x="18" y="12" width="4" height="4" rx="1" fill="#3fb950" opacity="0.6"/>
+              <rect x="42" y="12" width="4" height="4" rx="1" fill="#3fb950" opacity="0.6"/>
+              <rect x="18" y="48" width="4" height="4" rx="1" fill="#3fb950" opacity="0.6"/>
+              <rect x="42" y="48" width="4" height="4" rx="1" fill="#3fb950" opacity="0.6"/>
+            </svg>
+            <div class="internal-hero-text">
+              <div class="internal-hero-title">Realm Engine DLL</div>
+              <div class="internal-hero-sub">Native IL2CPP bridge · AutoAim · AutoDodge · AutoNexus</div>
+            </div>
+          </div>
           <div class="internal-header">
             <span class="internal-title">Internal DLL</span>
             <span id="internal-status-badge" class="status-badge disconnected">Disconnected</span>
@@ -1563,6 +1542,13 @@
                 <div class="scripts-toolbar-actions">
                   <button type="button" id="scripts-refresh-btn" class="setting-btn">Refresh</button>
                   <button type="button" id="scripts-open-folder-btn" class="setting-btn setting-btn-secondary">Open folder</button>
+                  <div class="scripts-add-wrap">
+                    <button type="button" id="scripts-add-btn" class="setting-btn">Add Script &#9660;</button>
+                    <div id="scripts-add-dropdown" class="scripts-add-dropdown" style="display:none;">
+                      <button type="button" id="scripts-add-write">Write new script</button>
+                      <button type="button" id="scripts-add-import">Import from folder</button>
+                    </div>
+                  </div>
                 </div>
                 <input id="scripts-search" class="scripts-filter-input" type="search" placeholder="Search scripts" spellcheck="false" />
               </div>
@@ -1586,6 +1572,13 @@
                   <button type="button" id="scripts-detail-stop" class="setting-btn setting-btn-secondary" disabled>Stop</button>
                   <button type="button" id="scripts-detail-open-gui" class="setting-btn setting-btn-secondary" disabled title="Open the GUI this script registered via RealmEngine.ui.panel">Open GUI</button>
                 </div>
+              </section>
+              <section id="scripts-editor-panel" class="plugin-detail scripts-editor-panel" style="display:none;">
+                <div class="scripts-editor-toolbar">
+                  <div id="scripts-editor-tabs" class="scripts-editor-tabs"></div>
+                  <button type="button" id="scripts-editor-save" class="setting-btn" disabled>Save</button>
+                </div>
+                <div id="scripts-editor-container" class="scripts-editor-container"></div>
               </section>
               <section class="plugin-detail scripts-log-panel">
                 <div class="plugin-detail-header scripts-log-header">
