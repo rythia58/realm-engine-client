@@ -165,7 +165,7 @@ struct WorldProjectile
 static constexpr uint8_t kAoeSrcGjj  = 0;  // GJJCEFJMNMK::KOBMINBDOBD  (throwable entity init)
 static constexpr uint8_t kAoeSrcFhoh = 1;  // FHOHCELBPDO::KOBMINBDOBD  (visual fallback)
 static constexpr uint8_t kAoeSrcExpl = 2;  // FGOFPGIIEPC::KOBMINBDOBD  (explosion controller)
-static constexpr uint8_t kAoeSrcSfx  = 3;  // HJMBOMEHGDJ::CGBILOJJPEI  (ShowEffect packet)
+static constexpr uint8_t kAoeSrcSfx  = 3;  // HJMBOMEHGDJ::NKCFKIEHJGP  (ShowEffect packet)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WorldAoe — ground-target AOE zone captured from four hook paths:

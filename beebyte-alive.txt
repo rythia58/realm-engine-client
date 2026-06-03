@@ -1,4 +1,5 @@
 ACHGMIOPGHO -> ExplosionManager
+KCDJJEKEBGN -> PlayerBase
 KJMONHENJEN -> MapObject
 LKHPPBEGNOM -> Character
 PMMFLLAIPGN -> Player

@@ -21,7 +21,7 @@
 //     Only fires for damaging throwables that detonate. Provides authoritative blast radius
 //     from CustomExplosionEntrance+0x38 (~3.0 tiles). isEnemy from anchor (thrower character).
 //
-//   HJMBOMEHGDJ::CGBILOJJPEI  (1 param: COEFCBBIBMC* msg)  RVA 0x180B33560
+//   HJMBOMEHGDJ::NKCFKIEHJGP  (1 param: COEFCBBIBMC* msg)  RVA 0x180B33560
 //     ShowEffect packet handler. Catches effect types 4=THROW, 5=NOVA, 23=CIRCLE_TELEGRAPH,
 //     39=AoE. THROW entries are deduped against GJJ/FHOH by dest position. isEnemy resolved
 //     via targetObjectId→dict key lookup (FindEntityIsEnemyById). Falls back to deferred

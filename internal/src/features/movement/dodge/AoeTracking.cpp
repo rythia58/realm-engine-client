@@ -68,7 +68,7 @@ static constexpr float kDedupTolSq = 0.01f;  // (0.1 tile)^2
 // than chip the player.
 static constexpr float kDefaultAoeRadiusTiles = 3.5f;
 
-// HJMBOMEHGDJ::NKCFKIEHJGP — ShowEffect packet handler (was CGBILOJJPEI, confirmed by runtime probe).
+// HJMBOMEHGDJ::NKCFKIEHJGP — ShowEffect packet handler.
 // Catches THROW(4), NOVA(5), CIRCLE_TELEGRAPH(23), AoE(39) effect types.
 // x64 ABI: rcx=this (HJMBOMEHGDJ*), rdx=COEFCBBIBMC* msg, r8=MethodInfo*
 static constexpr const char* kShowEffectClass      = "HJMBOMEHGDJ";
@@ -657,7 +657,7 @@ static void __fastcall ExplSpawnDetour(void* self, void* anchor, void* ep, float
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HJMBOMEHGDJ::NKCFKIEHJGP hook  (ShowEffect packet handler, was CGBILOJJPEI)
+// HJMBOMEHGDJ::NKCFKIEHJGP hook  (ShowEffect packet handler)
 //
 // Catches server-sent ShowEffect packets before game processes them.
 // Filters to: THROW(4)=throw arc, NOVA(5)=ring, CIRCLE_TELEGRAPH(23)=ground warn, AoE(39).

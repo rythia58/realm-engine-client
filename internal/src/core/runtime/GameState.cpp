@@ -116,26 +116,79 @@ static void RunClassDiag(Il2CppClass* appMgrClass)
         }
     }
 
-    // ── 4. Full class dump: every class name + parent name ───────────────────
+    // ── 4. Full class dump via image iteration (ALL classes, not just initialized) ──
+    // il2cpp_class_for_each only yields initialized classes; entity/projectile/
+    // throwable classes are not initialized until they appear in-game.
+    // Iterating the Assembly-CSharp image directly gives every defined type.
+    // We also capture pointers for classes that FindClassLoose can't reach
+    // (uninitialized), so the field/method sections below can dump them too.
     fprintf(f, "=== ALL CLASSES ===\n");
-    struct DumpCtx { FILE* f; };
-    DumpCtx ctx{ f };
-    il2cpp_class_for_each([](Il2CppClass* klass, void* ud) {
-        auto* c = static_cast<DumpCtx*>(ud);
-        const char* name = il2cpp_class_get_name(klass);
-        Il2CppClass* parent = il2cpp_class_get_parent(klass);
-        const char* pname   = parent ? il2cpp_class_get_name(parent) : "-";
-        fprintf(c->f, "%s\t%s\n", name ? name : "?", pname ? pname : "-");
-    }, &ctx);
+
+    // Classes that FindClassLoose may not resolve (not yet initialized).
+    // Captured here from the image walk so field/method sections can use them.
+    static const char* kImagePinNames[] = {
+        "HBEAKBIHANL",   // Projectile
+        "GJJCEFJMNMK",   // ThrowableArcManager
+        "FHOHCELBPDO",   // ThrowableLandingCircle
+        "FGOFPGIIEPC",   // ExplosionRingEffect
+    };
+    static constexpr int kImagePinCount = 4;
+    Il2CppClass* imagePinned[kImagePinCount] = {};
+
+    {
+        Il2CppDomain* domain = il2cpp_domain_get();
+        const char* kGameAssembly = "Assembly-CSharp";
+        const Il2CppAssembly* asm_ = il2cpp_domain_assembly_open(domain, kGameAssembly);
+        const Il2CppImage*    img  = asm_ ? il2cpp_assembly_get_image(asm_) : nullptr;
+        if (img) {
+            size_t count = il2cpp_image_get_class_count(img);
+            for (size_t i = 0; i < count; ++i) {
+                Il2CppClass* klass = const_cast<Il2CppClass*>(il2cpp_image_get_class(img, i));
+                if (!klass) continue;
+                const char* name   = il2cpp_class_get_name(klass);
+                Il2CppClass* parent = il2cpp_class_get_parent(klass);
+                const char* pname  = parent ? il2cpp_class_get_name(parent) : "-";
+                fprintf(f, "%s\t%s\n", name ? name : "?", pname ? pname : "-");
+                // Pin classes that FindClassLoose can't reach
+                if (name) {
+                    for (int p = 0; p < kImagePinCount; ++p) {
+                        if (!imagePinned[p] && strcmp(name, kImagePinNames[p]) == 0)
+                            imagePinned[p] = klass;
+                    }
+                }
+            }
+        } else {
+            // Fallback: initialized-only enumeration
+            struct DumpCtx { FILE* f; };
+            DumpCtx ctx{ f };
+            il2cpp_class_for_each([](Il2CppClass* klass, void* ud) {
+                auto* c = static_cast<DumpCtx*>(ud);
+                const char* name = il2cpp_class_get_name(klass);
+                Il2CppClass* parent = il2cpp_class_get_parent(klass);
+                const char* pname   = parent ? il2cpp_class_get_name(parent) : "-";
+                fprintf(c->f, "%s\t%s\n", name ? name : "?", pname ? pname : "-");
+            }, &ctx);
+        }
+    }
 
     // ── 5. Field enumeration for key classes ─────────────────────────────────
     // Plugin reads these to verify RuntimeOffsets field names are still present.
+    // For pinned classes (not FindClassLoose-reachable), use the image pointer.
     static const char* kFieldClasses[] = {
         "KJMONHENJEN", "LKHPPBEGNOM", "FKALGHJIADI",
         "HJMBOMEHGDJ", "HBEAKBIHANL", "CMFPKCJHKKB"
     };
     for (const char* cn : kFieldClasses) {
         Il2CppClass* klass = Resolver::FindClassLoose(cn);
+        // Fall back to image-pinned pointer if FindClassLoose can't reach it
+        if (!klass) {
+            for (int p = 0; p < kImagePinCount; ++p) {
+                if (imagePinned[p] && strcmp(kImagePinNames[p], cn) == 0) {
+                    klass = imagePinned[p];
+                    break;
+                }
+            }
+        }
         if (!klass) continue;
         fprintf(f, "=== FIELDS:%s ===\n", cn);
         void* fi_iter = nullptr;
@@ -157,6 +210,14 @@ static void RunClassDiag(Il2CppClass* appMgrClass)
     };
     for (const char* cn : kMethodClasses) {
         Il2CppClass* klass = Resolver::FindClassLoose(cn);
+        if (!klass) {
+            for (int p = 0; p < kImagePinCount; ++p) {
+                if (imagePinned[p] && strcmp(kImagePinNames[p], cn) == 0) {
+                    klass = imagePinned[p];
+                    break;
+                }
+            }
+        }
         if (!klass) continue;
         fprintf(f, "=== METHODS:%s ===\n", cn);
         void* mi_iter = nullptr;
