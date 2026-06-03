@@ -81,12 +81,12 @@ function buildStats(p: PlayerData): Stats {
   return {
     maxHP: p.maxHealth,
     maxMP: p.maxMana,
-    attack: p.attack + p.attackBonus + p.exaltedAttack,
-    defense: p.defense + p.defenseBonus + p.exaltedDefense,
-    speed: p.speed + p.speedBonus + p.exaltedSpeed,
-    dexterity: p.dexterity + p.dexterityBonus + p.exaltedDexterity,
-    vitality: p.vitality + p.vitalityBonus + p.exaltedVitality,
-    wisdom: p.wisdom + p.wisdomBonus + p.exaltedWisdom,
+    attack: p.attack,
+    defense: p.defense,
+    speed: p.speed,
+    dexterity: p.dexterity,
+    vitality: p.vitality,
+    wisdom: p.wisdom,
   };
 }
 

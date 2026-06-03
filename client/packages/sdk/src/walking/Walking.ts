@@ -31,6 +31,15 @@ export class Walking {
         throw new Error('Must be run inside RealmEngine client');
     }
 
+    /**
+     * Walk to a realm portal (dynamic nexus portal leading to "Realm of the Mad God").
+     * Filters out static nexus portals (Guild Hall, Bazaar, Vault, Pet Yard, Daily Quest).
+     * Returns true if a realm portal was found and movement started, false otherwise.
+     */
+    static walkToRealmPortal(): boolean {
+        throw new Error('Must be run inside RealmEngine client');
+    }
+
     static walkToLeftWall(): boolean {
         throw new Error('Must be run inside RealmEngine client');
     }

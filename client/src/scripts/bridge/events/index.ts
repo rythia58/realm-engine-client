@@ -389,14 +389,26 @@ function checkCharacterFameThresholds(client: ClientConnection): void {
   lastCharacterFameByClient.set(client, cur);
 }
 
+// Slots 0-3 are equipment (weapon/ability/armor/ring) — never fire as "picked up".
+const PICKUP_SLOT_START = 4;
+
 function checkInventoryPickups(client: ClientConnection, deps: BridgeDeps): void {
+  // Defer until character stats have arrived (name set = inventory populated).
+  if (!client.playerData.name) return;
   const inv = client.playerData.inventory;
   const prev = prevInvByClient.get(client);
   if (!prev || prev.length !== inv.length) {
     prevInvByClient.set(client, [...inv]);
     return;
   }
-  for (let i = 0; i < inv.length; i++) {
+  // If the previous snapshot had no bag items (taken before inventory stats arrived),
+  // this transition is a character load burst — re-snapshot silently.
+  const prevHadItems = prev.slice(PICKUP_SLOT_START).some(v => Number.isFinite(v) && v >= 0);
+  if (!prevHadItems) {
+    prevInvByClient.set(client, [...inv]);
+    return;
+  }
+  for (let i = PICKUP_SLOT_START; i < inv.length; i++) {
     const oldV = prev[i]!;
     const newV = inv[i]!;
     const wasEmpty = !Number.isFinite(oldV) || oldV < 0;

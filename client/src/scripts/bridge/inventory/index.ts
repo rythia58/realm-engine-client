@@ -186,5 +186,7 @@ export function install(deps: BridgeDeps): void {
     return n;
   };
 
+  inventory.getFreeSlots = inventory.emptySlotCount;
+
   inventory.getBackpack = () => backpackTierFromPlayerData(playerData(deps));
 }

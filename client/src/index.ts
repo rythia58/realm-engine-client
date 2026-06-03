@@ -47,7 +47,7 @@ AntiHook.captureBaseline();
 import { resolve, dirname, join } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
-import { existsSync, readFileSync, readdirSync, unlinkSync, copyFileSync, statSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, unlinkSync, copyFileSync, statSync, chmodSync } from 'fs';
 import { Proxy } from './proxy/Proxy.js';
 import { PacketFactory } from './packets/PacketFactory.js';
 import { ReconnectHandler } from './proxy/ReconnectHandler.js';
@@ -206,6 +206,8 @@ async function main() {
     } else {
     try {
       const cheatDllDest = resolve(hooker.gameDirectory, 'version.dll');
+      // Clear read-only flag on destination so copyFileSync doesn't EPERM.
+      try { if (existsSync(cheatDllDest)) chmodSync(cheatDllDest, 0o666); } catch {}
       let deployed = false;
       const binPath = resolve(assetsDir, 'internal.bin');
       // APP_ROOT = bot-client dir (Electron sets REALM_ENGINE_APP_ROOT). ROOT may be resourcesPath in prod,

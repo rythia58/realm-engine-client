@@ -125,6 +125,31 @@ export class BridgeWalking {
       return true;
     };
 
+    Walking.walkToRealmPortal = (): boolean => {
+      const c = getClient();
+      if (!c?.connected) return false;
+      const origin = c.playerData.pos;
+      const portals = deps.worldState.getPortalsSorted(deps.gameData, origin);
+      const realm = portals.find((p) => {
+        const def = deps.gameData.getObject(p.objectType);
+        const id = (def?.id ?? '').toLowerCase();
+        const dungeonName = (def?.dungeonName ?? '').toLowerCase();
+        return (
+          id === 'nexus portal' ||          // 0x0712 — dynamic realm portals in nexus
+          id.includes('realm portal') ||    // 0x0704, 0x070e, 0xCAD2
+          dungeonName.includes('realm')
+        );
+      });
+      if (!realm) {
+        Logger.warn('Walking', `walkToRealmPortal: not found (${portals.length} portals checked)`);
+        return false;
+      }
+      const def = deps.gameData.getObject(realm.objectType);
+      if (NAV_DEBUG) Logger.log('Walking', `walkToRealmPortal → "${def?.id ?? '?'}" id=${realm.objectId} dist=${realm.dist.toFixed(2)} at (${realm.x.toFixed(2)},${realm.y.toFixed(2)})`);
+      void controller.walkTo(realm.x, realm.y);
+      return true;
+    };
+
     Walking.walkToLeftWall = (): boolean => {
       const c = getClient();
       if (!c?.connected) return false;

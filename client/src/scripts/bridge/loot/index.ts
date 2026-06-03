@@ -128,23 +128,30 @@ const RARITY_RANK: Record<LootRarity, number> = {
 const activeBags: Map<number, LootBag> = new Map();
 
 type AnyHandler = (e: any) => void;
-const listeners: Map<string, AnyHandler[]> = new Map();
+type ListenerEntry = { handler: AnyHandler; scriptId: string | undefined };
+const listeners: Map<string, ListenerEntry[]> = new Map();
+let scriptSession: { scriptId: string | undefined } | null = null;
 
 function register(key: string, handler: AnyHandler): () => void {
+  const entry: ListenerEntry = { handler, scriptId: scriptSession?.scriptId };
   if (!listeners.has(key)) listeners.set(key, []);
-  listeners.get(key)!.push(handler);
+  listeners.get(key)!.push(entry);
   return () => {
     const arr = listeners.get(key) ?? [];
-    listeners.set(key, arr.filter((h) => h !== handler));
+    listeners.set(key, arr.filter((e) => e !== entry));
   };
 }
 
 function fireSafe(key: string, event: any): void {
-  for (const h of listeners.get(key) ?? []) {
+  for (const entry of listeners.get(key) ?? []) {
+    const prev = scriptSession ? scriptSession.scriptId : undefined;
+    if (scriptSession && entry.scriptId !== undefined) scriptSession.scriptId = entry.scriptId;
     try {
-      h(event);
+      entry.handler(event);
     } catch (err) {
       Logger.warn('BridgeLoot', `listener error: ${(err as Error).message}`);
+    } finally {
+      if (scriptSession) scriptSession.scriptId = prev;
     }
   }
 }
@@ -500,4 +507,6 @@ export function install(deps: BridgeDeps): void {
   loot.isHpPot = (objectType) => HP_POTION_IDS.has(objectType);
   loot.isMpPot = (objectType) => MP_POTION_IDS.has(objectType);
   loot.isLifeManaPot = (objectType) => LIFE_MANA_POTION_IDS.has(objectType);
+
+  scriptSession = deps.scriptSession;
 }

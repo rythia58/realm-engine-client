@@ -115,6 +115,40 @@ export class BridgeWorld {
       return null;
     };
 
+    World.enterPortal = async (name: string): Promise<boolean> => {
+      const c = deps.clientRef.current;
+      if (!c?.connected) return false;
+      const origin = c.playerData.pos;
+      const q = name.trim().toLowerCase();
+      const portals = deps.worldState.getPortalsSorted(deps.gameData, origin);
+      const portal = portals.find((p) => {
+        const def = deps.gameData.getObject(p.objectType);
+        return (
+          (def?.id ?? '').toLowerCase().includes(q) ||
+          (def?.dungeonName ?? '').toLowerCase().includes(q) ||
+          (def?.displayId ?? '').toLowerCase().includes(q)
+        );
+      });
+      if (!portal) {
+        if (NAV_DEBUG) Logger.log('World', `enterPortal("${name}"): not found (${portals.length} portals visible)`);
+        return false;
+      }
+      const def = deps.gameData.getObject(portal.objectType);
+      if (NAV_DEBUG) Logger.log('World', `enterPortal("${name}") → "${def?.id ?? '?'}" id=${portal.objectId} dist=${portal.dist.toFixed(2)} at (${portal.x.toFixed(2)},${portal.y.toFixed(2)})`);
+      const controller = activeController;
+      if (!controller) return false;
+      void controller.walkTo(portal.x, portal.y);
+      try {
+        const pkt = deps.proxy.packetFactory.createByName('USEPORTAL');
+        pkt.data.objectId = portal.objectId;
+        pkt.modified = true;
+        c.sendToServer(pkt);
+      } catch (err) {
+        Logger.warn('World', `enterPortal("${name}"): USEPORTAL send failed — ${(err as Error).message}`);
+      }
+      return true;
+    };
+
     World.enterRealm = async (): Promise<boolean> => {
       if (!World.isNexus()) {
         Logger.warn('World', `enterRealm: not in nexus (map="${World.getName()}")`);
@@ -126,9 +160,12 @@ export class BridgeWorld {
       const portals = deps.worldState.getPortalsSorted(deps.gameData, origin);
       const realmPortal = portals.find((p) => {
         const def = deps.gameData.getObject(p.objectType);
+        const id = (def?.id ?? '').toLowerCase();
+        const dungeonName = (def?.dungeonName ?? '').toLowerCase();
         return (
-          (def?.dungeonName ?? '').toLowerCase().includes('realm') ||
-          (def?.id ?? '').toLowerCase().includes('realm')
+          id === 'nexus portal' ||          // 0x0712 — dynamic realm portals in nexus
+          id.includes('realm portal') ||    // 0x0704, 0x070e, 0xCAD2
+          dungeonName.includes('realm')
         );
       });
       if (!realmPortal) {
@@ -136,13 +173,22 @@ export class BridgeWorld {
         return false;
       }
       const def = deps.gameData.getObject(realmPortal.objectType);
-      if (NAV_DEBUG) Logger.log('World', `enterRealm — found "${def?.id ?? '?'}" id=${realmPortal.objectId} dist=${realmPortal.dist.toFixed(2)} at (${realmPortal.x.toFixed(2)},${realmPortal.y.toFixed(2)}) → walkTo started`);
+      if (NAV_DEBUG) Logger.log('World', `enterRealm — found "${def?.id ?? '?'}" id=${realmPortal.objectId} dist=${realmPortal.dist.toFixed(2)} at (${realmPortal.x.toFixed(2)},${realmPortal.y.toFixed(2)}) → walkTo + USEPORTAL`);
       const controller = activeController;
       if (!controller) {
         Logger.warn('World', 'enterRealm: MovementController not initialized');
         return false;
       }
       void controller.walkTo(realmPortal.x, realmPortal.y);
+      try {
+        const pkt = deps.proxy.packetFactory.createByName('USEPORTAL');
+        pkt.data.objectId = realmPortal.objectId;
+        pkt.modified = true;
+        c.sendToServer(pkt);
+        if (NAV_DEBUG) Logger.log('World', `enterRealm — USEPORTAL sent objectId=${realmPortal.objectId}`);
+      } catch (err) {
+        Logger.warn('World', `enterRealm: USEPORTAL send failed — ${(err as Error).message}`);
+      }
       return true;
     };
   }

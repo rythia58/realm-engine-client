@@ -47,6 +47,10 @@ export const inventory = {
     return 0;
   },
 
+  getFreeSlots(): number {
+    return 0;
+  },
+
   /**
    * Backpack tier for UI and branching: **1** = none · **2** = unlocked · **3** = unlocked + extender (pet bag).
    * Derived from wire stat **130** (BackpackTier: `0` / `8` / `16`+) with legacy stat **75** when tier is absent or `0`.
