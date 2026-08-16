@@ -192,6 +192,11 @@ void SetEnabled(bool enabled)
     if (!enabled) { ResetCommit(); PublishDebug(DebugSnapshot{}); }
 }
 bool IsEnabled() { return g_enabled.load(std::memory_order_relaxed); }
+bool IsSteering()
+{
+    if (!g_enabled.load(std::memory_order_relaxed) || !g_haveCommittedDir) return false;
+    return (GetTickCount64() - g_lastCommitMs) < kCommitDwellMs;
+}
 
 DiagView GetDiagView()
 {

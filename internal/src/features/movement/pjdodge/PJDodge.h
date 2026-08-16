@@ -35,6 +35,10 @@ struct DiagView {
 
 void SetEnabled(bool enabled);
 bool IsEnabled();
+
+// True only while PJDodge is actually overriding movement. With lockFollow off
+// it ignores the external goal, so callers must drive navigation themselves.
+bool IsSteering();
 void OnEnter();
 
 // Game-update-thread tick (called from the AppEngineManager::Update detour).

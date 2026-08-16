@@ -4,6 +4,10 @@ namespace RePP {
 
 void SetEnabled(bool enabled);
 bool IsEnabled();
+
+// True only while a move was actually commanded recently. RePP never reads the
+// external goal, so callers must drive long-range navigation themselves.
+bool IsSteering();
 void OnEnter();
 void Tick(void* player, float px, float py, float dt);
 void RenderSettings();
