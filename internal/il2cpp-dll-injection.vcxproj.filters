@@ -41,6 +41,7 @@
     <ClCompile Include="src\features\movement\repp\ReppField.cpp" />
     <ClCompile Include="src\features\movement\repp\ReppCommit.cpp" />
     <ClCompile Include="src\features\movement\repp\ReppDebug.cpp" />
+    <ClCompile Include="src\features\movement\rdodge\RDodge.cpp" />
     <ClCompile Include="src\features\movement\pjdodge\PJDodge.cpp" />
     <ClCompile Include="src\features\movement\pjdodge\PJDodgeCore.cpp" />
     <ClCompile Include="src\features\movement\pjdodge\PJDodgeSensors.cpp" />
@@ -175,6 +176,7 @@
     <ClInclude Include="src\features\movement\repp\ReppField.h" />
     <ClInclude Include="src\features\movement\repp\ReppCommit.h" />
     <ClInclude Include="src\features\movement\repp\ReppDebug.h" />
+    <ClInclude Include="src\features\movement\rdodge\RDodge.h" />
     <ClInclude Include="src\features\movement\pjdodge\PJDodgeTypes.h" />
     <ClInclude Include="src\features\movement\pjdodge\PJDodge.h" />
     <ClInclude Include="src\features\movement\pjdodge\PJDodgeCore.h" />

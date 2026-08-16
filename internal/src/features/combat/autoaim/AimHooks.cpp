@@ -37,6 +37,10 @@ static std::atomic<float> s_targetY{ 0.f };
 static std::atomic<bool>  s_reverseCultStaff{ true };
 static std::atomic<bool>  s_offsetColossus{ false };
 static std::atomic<bool>  s_enabled{ false };
+// Stamped whenever the coordinator confirms a target. A target that stops being
+// refreshed must not keep bending shots toward where it used to be.
+static std::atomic<unsigned long long> s_targetTs{ 0 };
+static constexpr unsigned long long kTargetStaleMs = 150;
 
 // ── Hook function-pointer types ───────────────────────────────────────────────
 using ComputeShootAngleFn = void(__fastcall*)(void*, uint8_t, float*, bool*, bool, void*);
@@ -70,6 +74,9 @@ static bool ShouldRedirect(void* player)
 {
     if (!s_enabled.load(std::memory_order_relaxed)) return false;
     if (!s_hasTarget.load(std::memory_order_relaxed)) return false;
+    // LMB held = the player is aiming by hand; don't fight the cursor.
+    if (GetAsyncKeyState(VK_LBUTTON) & 0x8000) return false;
+    if ((GetTickCount64() - s_targetTs.load(std::memory_order_relaxed)) >= kTargetStaleMs) return false;
     if (!AddrOk(player)) return false;
     void* local = GameState::GetLocalPtr();
     return local && player == local;
@@ -203,6 +210,7 @@ bool IsInstalled() { return s_installed; }
 void SetTarget(bool hasTarget, float x, float y)
 {
     s_hasTarget.store(hasTarget, std::memory_order_relaxed);
+    if (hasTarget) s_targetTs.store(GetTickCount64(), std::memory_order_relaxed);
     s_targetX.store(x, std::memory_order_relaxed);
     s_targetY.store(y, std::memory_order_relaxed);
     s_enabled.store(true, std::memory_order_relaxed);

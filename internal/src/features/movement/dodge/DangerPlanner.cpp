@@ -7,6 +7,7 @@
 #include "ZDodge.h"
 #include "RePP.h"
 #include "PJDodge.h"
+#include "RDodge.h"
 #include "DbgFileLog.h"
 #include "SteerInput.h"
 #include "GhostHit.h"
@@ -741,7 +742,8 @@ static void RunDodgeTickBody()
     const bool zaclinOn = ZDodge::IsEnabled();
     const bool reppOn   = RePP::IsEnabled();
     const bool pjOn     = PJDodge::IsEnabled();
-    if (xdodgeOn || rolloutOn || zaclinOn || reppOn || pjOn) {
+    const bool rdOn     = RDodge::IsEnabled();
+    if (xdodgeOn || rolloutOn || zaclinOn || reppOn || pjOn || rdOn) {
         // BootGate safety gate: on a patched/degraded game the entity/projectile
         // offsets are stale. The dodge sensors fill fixed-size buffers from counts
         // read at those offsets, so a garbage count overruns a buffer and hard-
@@ -784,7 +786,8 @@ static void RunDodgeTickBody()
         // shared external goal that dodge engines can consume.
         SteerInput::Tick();
         ResolveEnemyLock(px, py);
-        if (pjOn)           PJDodge::Tick(p, px, py, dt);
+        if (rdOn)           RDodge::Tick(p, px, py, dt);
+        else if (pjOn)      PJDodge::Tick(p, px, py, dt);
         else if (reppOn)    RePP::Tick(p, px, py, dt);
         else if (zaclinOn)  ZDodge::Tick(p, px, py, dt);
         else if (rolloutOn) RolloutDodge::Tick(p, px, py, dt);

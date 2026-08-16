@@ -2,7 +2,8 @@ import type { PluginContext } from '../src/plugins/PluginContext.js';
 import { sendDllFeature } from '../src/bridge/DllFeatureBus.js';
 
 // Maps the dashboard string value to the C++ TestTAB::DodgeMode enum.
-// Off=0, XDodge=1, RolloutGrid=2, RolloutQuad=3, zDodge=4, RePP=5.
+// Off=0, XDodge=1, RolloutGrid=2, RolloutQuad=3, zDodge=4, RePP=5,
+// PJDodge=6, Rdodge=7.
 // XDodge uses A* (goal-directed) with BFS fallback (immediate escape),
 // ported from XRebuild/XDriver decompile. RE-Sim does per-input forward
 // simulation; the two RE-Sim modes differ only in broad-phase backend
@@ -10,7 +11,11 @@ import { sendDllFeature } from '../src/bridge/DllFeatureBus.js';
 // intent-preserving slide-assist dodge. RePP (RE++) is the next-gen
 // reactive dodge. PJDodge is the predictive controller (exact segment CCD,
 // survival-first candidate selection, intent ladder, escape search).
-const DODGE_VALUES = ['off', 'xdodge', 'rollout-grid', 'rollout-quad', 'zdodge', 're-plus-plus', 'pj-dodge'] as const;
+// Rdodge is the dogebawt-derived hard-override ring sampler: it never defers
+// to held input, and when standing is safe it walks the shared external goal
+// (walkTargetX/Y/Active, bag looter, Shift+click lock) so scripts can drive
+// the character while the dodge keeps it alive.
+const DODGE_VALUES = ['off', 'xdodge', 'rollout-grid', 'rollout-quad', 'zdodge', 're-plus-plus', 'pj-dodge', 'rdodge'] as const;
 type ActiveDodgeMode = Exclude<(typeof DODGE_VALUES)[number], 'off'>;
 type SettingConfig = Parameters<PluginContext['registerSetting']>[1];
 type SettingCallback = Parameters<PluginContext['registerSetting']>[2];
@@ -64,6 +69,7 @@ export function register(ctx: PluginContext) {
       { label: 'zDodge', value: 'zdodge' },
       { label: 'RE++', value: 're-plus-plus' },
       { label: 'PJDodge', value: 'pj-dodge' },
+      { label: 'Rdodge', value: 'rdodge' },
     ],
   }, () => flush());
 
@@ -271,6 +277,56 @@ export function register(ctx: PluginContext) {
     onOff('[PJDodge] Lock follow (walk toward lock target)', 'off'),
     (v: string) => sendDllFeature('pjdodgeLockFollow', v === 'on' ? 1 : 0));
 
+  // ── Rdodge settings ───────────────────────────────────────────────────────
+  // Hard-override survival dodge. It rewrites the move destination outright, so
+  // there is deliberately no "yield to WASD" knob — the only thing that hands
+  // control back is the frame being safe.
+  registerModeSetting('rdodge', 'rdodgeReactWindowMs', {
+    label: '[Rdodge] React window (ms — also how early it flinches)',
+    type: 'range', value: 1500, min: 300, max: 2500, step: 25,
+  }, (v: number) => sendDllFeature('rdodgeReactWindowMs', v));
+  registerModeSetting('rdodge', 'rdodgeHitScale', {
+    label: '[Rdodge] Bullet box scale (lower = threads tighter)',
+    type: 'range', value: 1, min: 0.5, max: 2, step: 0.05,
+  }, (v: number) => sendDllFeature('rdodgeHitScale', v));
+  registerModeSetting('rdodge', 'rdodgeHitPad', {
+    label: '[Rdodge] Safety pad (tiles — latency margin)', advanced: true,
+    type: 'range', value: 0.05, min: 0, max: 0.3, step: 0.01,
+  }, (v: number) => sendDllFeature('rdodgeHitPad', v));
+  registerModeSetting('rdodge', 'rdodgeMaxMoveTiles', {
+    label: '[Rdodge] Max move distance (tiles)', advanced: true,
+    type: 'range', value: 2, min: 0.5, max: 4, step: 0.05,
+  }, (v: number) => sendDllFeature('rdodgeMaxMoveTiles', v));
+  registerModeSetting('rdodge', 'rdodgeAvoidEnemies',
+    onOff('[Rdodge] Treat enemy bodies as danger (contact damage)'),
+    (v: string) => sendDllFeature('rdodgeAvoidEnemies', v === 'on' ? 1 : 0));
+  registerModeSetting('rdodge', 'rdodgeEnemyAvoid', {
+    label: '[Rdodge] Enemy standoff distance (tiles)', advanced: true,
+    type: 'range', value: 0.6, min: 0, max: 3, step: 0.05,
+  }, (v: number) => sendDllFeature('rdodgeEnemyAvoid', v));
+  registerModeSetting('rdodge', 'rdodgeAvoidHazards', onOff('[Rdodge] Avoid hazards (damaging ground)'),
+    (v: string) => sendDllFeature('rdodgeAvoidHazards', v === 'on' ? 1 : 0));
+  registerModeSetting('rdodge', 'rdodgeCommitDwell',
+    onOff('[Rdodge] Commit dwell (no 180° escape flip-flop)'),
+    (v: string) => sendDllFeature('rdodgeCommitDwell', v === 'on' ? 1 : 0));
+
+  // External goal — the shared walkTarget channel (Walking.ts / visual scripts /
+  // bag looter / Shift+click lock). With this on, Rdodge walks the character to
+  // the goal on every frame where standing is safe, so a script can drive
+  // movement without ever turning the dodge off.
+  registerModeSetting('rdodge', 'rdodgeGoalFollow',
+    onOff('[Rdodge] Follow external goal (walk target / lock / loot)'),
+    (v: string) => sendDllFeature('rdodgeGoalFollow', v === 'on' ? 1 : 0));
+  registerModeSetting('rdodge', 'rdodgeGoalArriveTiles', {
+    label: '[Rdodge] Goal arrive radius (tiles)',
+    type: 'range', value: 0.5, min: 0.1, max: 3, step: 0.05,
+  }, (v: number) => sendDllFeature('rdodgeGoalArriveTiles', v));
+
+  registerModeSetting('rdodge', 'rdodgeDebugOverlay', onOff('[Rdodge] Debug overlay'),
+    (v: string) => sendDllFeature('rdodgeDebugOverlay', v === 'on' ? 1 : 0));
+  registerModeSetting('rdodge', 'rdodgeTrace', onOff('[Rdodge] Trace to DLL log (diagnostics)', 'off'),
+    (v: string) => sendDllFeature('rdodgeTrace', v === 'on' ? 1 : 0));
+
   registerModeSetting('xdodge', 'xdodgeAstar', onOff('[Goal] Smart goal pathing'),
     (v: string) => sendDllFeature('xdodgeAstar', v === 'on' ? 1 : 0));
   registerModeSetting('xdodge', 'xdodgeWeighting', onOff('[Goal] Weighted danger field'),
@@ -428,6 +484,15 @@ export function register(ctx: PluginContext) {
     sendDllFeature('pjdodgeLeadMs', ctx.getSetting<number>('pjdodgeLeadMs'));
     sendDllFeature('pjdodgeHitScale', ctx.getSetting<number>('pjdodgeHitScale'));
     for (const k of ['pjdodgeSafeWalk', 'pjdodgeSpeedScale', 'pjdodgePredictionAccuracy', 'pjdodgeDebugOverlay', 'pjdodgeLockFollow'])
+      sendDllFeature(k, ctx.getSetting<string>(k) === 'on' ? 1 : 0);
+    // Rdodge settings.
+    sendDllFeature('rdodgeReactWindowMs',   ctx.getSetting<number>('rdodgeReactWindowMs'));
+    sendDllFeature('rdodgeHitScale',        ctx.getSetting<number>('rdodgeHitScale'));
+    sendDllFeature('rdodgeHitPad',          ctx.getSetting<number>('rdodgeHitPad'));
+    sendDllFeature('rdodgeMaxMoveTiles',    ctx.getSetting<number>('rdodgeMaxMoveTiles'));
+    sendDllFeature('rdodgeEnemyAvoid',      ctx.getSetting<number>('rdodgeEnemyAvoid'));
+    sendDllFeature('rdodgeGoalArriveTiles', ctx.getSetting<number>('rdodgeGoalArriveTiles'));
+    for (const k of ['rdodgeAvoidEnemies', 'rdodgeAvoidHazards', 'rdodgeCommitDwell', 'rdodgeGoalFollow', 'rdodgeDebugOverlay', 'rdodgeTrace'])
       sendDllFeature(k, ctx.getSetting<string>(k) === 'on' ? 1 : 0);
     // Re-apply the 60fps cap here too. The onEnabledChange / clientConnected
     // handlers were the only places setting targetFrameRate, so if the cap
