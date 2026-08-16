@@ -22,4 +22,16 @@ bool PollSocketHotkeyEvent();
 void ApplyPluginToggleHotkeys(const char* spec);
 void CollectPluginToggleHotkeyEvents(std::vector<std::string>& outPluginIds);
 
+// Plugin roster from the client ("id|name|category|enabled|locked|hotkey;..."), IPC thread writes, render thread reads.
+struct PluginStateEntry {
+	char id[96];
+	char name[96];
+	char category[24];
+	char hotkey[48];
+	bool enabled;
+	bool locked;
+};
+void ApplyPluginStates(const char* spec);
+void CopyPluginStates(std::vector<PluginStateEntry>& out);
+
 } // namespace FeatureRuntime

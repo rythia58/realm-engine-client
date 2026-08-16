@@ -17,6 +17,7 @@
 #include "FloatingTextService.h"
 #include "GameState.h"
 #include "AutoAim.h"
+#include "AutoAbility.h"
 #include "ProjNoclip.h"
 #include "Noclip.h"
 #include "gui/tabs/TestTAB.h"
@@ -26,6 +27,7 @@
 
 #include <limits>
 #include <climits>
+#include <mutex>
 #include <cctype>
 #include <cstring>
 #include <string>
@@ -74,14 +76,14 @@ namespace {
 
     void ApplyAutoAbilityFeatureState()
     {
-        static int s_lastEnabled = -1, s_lastWizMode = INT32_MIN;
+        static int s_lastEnabled = -1, s_lastItemType = INT32_MIN;
         static float s_lastMpPct = -1.f;
         const int enabled = FeatureState::GetAutoAbilityEnabled() ? 1 : 0;
         const float mpPct = FeatureState::GetAutoAbilityMpPct();
-        const int wizMode = FeatureState::GetAutoAbilityWizardMode();
-        if (enabled != s_lastEnabled) { s_lastEnabled = enabled; CombatTAB::SetAutoAbility(enabled != 0); }
-        if (mpPct != s_lastMpPct) { s_lastMpPct = mpPct; CombatTAB::SetAbilityMpPct(mpPct); }
-        if (wizMode != s_lastWizMode) { s_lastWizMode = wizMode; CombatTAB::SetWizardAbilityTargetMode(wizMode); }
+        const int itemType = FeatureState::GetAutoAbilityItemType();
+        if (enabled != s_lastEnabled) { s_lastEnabled = enabled; AutoAbility::SetEnabled(enabled != 0); }
+        if (mpPct != s_lastMpPct) { s_lastMpPct = mpPct; AutoAbility::SetMpThresholdPct(mpPct); }
+        if (itemType != s_lastItemType) { s_lastItemType = itemType; AutoAbility::SetAbilityItemType(itemType); }
     }
 
     bool IsCurrentProcessForeground()
@@ -280,6 +282,55 @@ void FeatureRuntime::CollectPluginToggleHotkeyEvents(std::vector<std::string>& o
         if (down && !binding.lastDown) outPluginIds.emplace_back(binding.pluginId);
         binding.lastDown = down;
     }
+}
+
+namespace {
+    std::mutex s_pluginStatesMutex;
+    std::vector<FeatureRuntime::PluginStateEntry> s_pluginStates;
+}
+
+void FeatureRuntime::ApplyPluginStates(const char* spec)
+{
+    std::vector<PluginStateEntry> parsed;
+    if (spec && *spec) {
+        std::string input(spec);
+        size_t start = 0;
+        while (start < input.size()) {
+            const size_t end = input.find(';', start);
+            const std::string token = input.substr(start, end == std::string::npos ? std::string::npos : end - start);
+
+            // id|name|category|enabled|locked|hotkey
+            std::string field[6];
+            size_t fieldStart = 0;
+            int fi = 0;
+            while (fi < 6) {
+                const size_t bar = token.find('|', fieldStart);
+                field[fi++] = token.substr(fieldStart, bar == std::string::npos ? std::string::npos : bar - fieldStart);
+                if (bar == std::string::npos) break;
+                fieldStart = bar + 1;
+            }
+            if (fi == 6 && IsPluginHotkeyIdSafe(field[0].c_str())) {
+                PluginStateEntry e{};
+                strncpy_s(e.id, sizeof(e.id), field[0].c_str(), _TRUNCATE);
+                strncpy_s(e.name, sizeof(e.name), field[1].c_str(), _TRUNCATE);
+                strncpy_s(e.category, sizeof(e.category), field[2].c_str(), _TRUNCATE);
+                e.enabled = field[3] == "1";
+                e.locked = field[4] == "1";
+                strncpy_s(e.hotkey, sizeof(e.hotkey), field[5].c_str(), _TRUNCATE);
+                parsed.push_back(e);
+            }
+            if (end == std::string::npos) break;
+            start = end + 1;
+        }
+    }
+    std::lock_guard<std::mutex> lk(s_pluginStatesMutex);
+    s_pluginStates.swap(parsed);
+}
+
+void FeatureRuntime::CopyPluginStates(std::vector<PluginStateEntry>& out)
+{
+    std::lock_guard<std::mutex> lk(s_pluginStatesMutex);
+    out = s_pluginStates;
 }
 
 void FeatureRuntime::ApplyOverrides()

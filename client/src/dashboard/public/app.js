@@ -3594,6 +3594,13 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
         case 'history':
           msg.data.forEach(p => onPacket(p, true));
           break;
+        case 'visualScriptDefs':
+        case 'visualScripts':
+        case 'visualScriptGraph':
+        case 'visualScriptSaveResult':
+        case 'visualScriptLive':
+          if (window.VisualScriptEditor) window.VisualScriptEditor.onMessage(msg);
+          break;
         case 'plugins': {
           var pl = Array.isArray(msg.data) ? msg.data : [];
           if (pl.length > 0) pluginsReceived = true;
@@ -6137,6 +6144,14 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
     if (pluginCategory) {
       pluginCategory.addEventListener('change', function () {
         renderPlugins(cachedPluginsForHub);
+      });
+    }
+    var disableAllBtn = document.getElementById('plugin-disable-all');
+    if (disableAllBtn) {
+      disableAllBtn.addEventListener('click', function () {
+        if (!ws || ws.readyState !== 1) return;
+        if (!window.confirm('Disable all plugins? Every hack will be turned off.')) return;
+        ws.send(JSON.stringify({ type: 'disableAllPlugins' }));
       });
     }
   }
@@ -16265,6 +16280,30 @@ import { NOISY_PACKETS, MAX_ROWS, MAX_PLUGIN_LOGS, CLASS_NAMES, CLASS_COLORS, SK
     var hub = document.getElementById('scripts-hub');
     if (!hub || hub.dataset.wired) return;
     hub.dataset.wired = '1';
+
+    var modeLocal = document.getElementById('scripts-mode-local');
+    var modeVisual = document.getElementById('scripts-mode-visual');
+    var subLocal = document.getElementById('scripts-sub-local');
+    var subVisual = document.getElementById('scripts-sub-visual');
+    function setScriptsMode(visual) {
+      if (subLocal) subLocal.style.display = visual ? 'none' : '';
+      if (subVisual) subVisual.style.display = visual ? '' : 'none';
+      if (modeLocal) modeLocal.classList.toggle('active', !visual);
+      if (modeVisual) modeVisual.classList.toggle('active', visual);
+      if (visual && window.VisualScriptEditor) {
+        var host = document.getElementById('visual-script-editor');
+        if (host && !host.dataset.wired) {
+          host.dataset.wired = '1';
+          window.VisualScriptEditor.init(host, {
+            send: function (m) { try { ws.send(JSON.stringify(m)); } catch (_e) {} },
+          });
+        } else if (window.VisualScriptEditor.fit) {
+          window.VisualScriptEditor.fit();
+        }
+      }
+    }
+    if (modeLocal) modeLocal.addEventListener('click', function () { setScriptsMode(false); });
+    if (modeVisual) modeVisual.addEventListener('click', function () { setScriptsMode(true); });
 
     var refreshBtn = document.getElementById('scripts-refresh-btn');
     if (refreshBtn) refreshBtn.addEventListener('click', function () { refreshScriptsTab(); });

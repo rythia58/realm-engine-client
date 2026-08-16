@@ -3,39 +3,54 @@ import type { Position } from '@realmengine/sdk';
 import type { Enemy } from '@realmengine/sdk';
 import type { BridgeDeps } from '../BridgeDeps.js';
 import { warnUnimplemented } from '../stubWarn.js';
+import { sendDllFeature } from '../../../bridge/DllFeatureBus.js';
 import { Logger } from '../../../util/Logger.js';
+
+let walkTarget: { x: number; y: number } | null = null;
 
 export class BridgeWalking {
   static install(deps: BridgeDeps): void {
-    Walking.walkTo = (_x, _y) => {
-      warnUnimplemented('Walking.walkTo');
+    const playerPos = (): { x: number; y: number } | null => {
+      const pd = deps.clientRef.current?.playerData;
+      return pd ? { x: pd.pos.x, y: pd.pos.y } : null;
+    };
+
+    Walking.walkTo = (x, y) => {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+      walkTarget = { x, y };
+      sendDllFeature('walkTargetX', x);
+      sendDllFeature('walkTargetY', y);
+      sendDllFeature('walkTargetActive', true);
+      return true;
+    };
+
+    Walking.walkToPosition = (position: Position) => {
+      return Walking.walkTo(position.x, position.y);
+    };
+
+    Walking.walkToEnemy = (enemy: Enemy) => {
+      const e = enemy as unknown as { x?: number; y?: number; pos?: { x: number; y: number } };
+      const x = e.pos?.x ?? e.x;
+      const y = e.pos?.y ?? e.y;
+      if (x === undefined || y === undefined) return false;
+      return Walking.walkTo(x, y);
+    };
+
+    const walkToPortalMatching = (nameFilter: string | null): boolean => {
+      const origin = playerPos();
+      if (!origin) return false;
+      const portals = deps.worldState.getPortalsSorted(deps.gameData, origin);
+      for (const p of portals) {
+        if (!nameFilter) return Walking.walkTo(p.x, p.y);
+        const objName = String(deps.gameData.getObject(p.objectType)?.id ?? '').toLowerCase();
+        if (objName.includes(nameFilter.toLowerCase())) return Walking.walkTo(p.x, p.y);
+      }
       return false;
     };
 
-    Walking.walkToPosition = (_position: Position) => {
-      warnUnimplemented('Walking.walkToPosition');
-      return false;
-    };
-
-    Walking.walkToEnemy = (_enemy: Enemy) => {
-      warnUnimplemented('Walking.walkToEnemy');
-      return false;
-    };
-
-    Walking.walkToPortal = (_name: string) => {
-      warnUnimplemented('Walking.walkToPortal');
-      return false;
-    };
-
-    Walking.walkToNearestPortal = () => {
-      warnUnimplemented('Walking.walkToNearestPortal');
-      return false;
-    };
-
-    Walking.walkToNexusPortal = () => {
-      warnUnimplemented('Walking.walkToNexusPortal');
-      return false;
-    };
+    Walking.walkToPortal = (name: string) => walkToPortalMatching(name);
+    Walking.walkToNearestPortal = () => walkToPortalMatching(null);
+    Walking.walkToNexusPortal = () => walkToPortalMatching('nexus');
 
     Walking.walkToLeftWall = () => {
       warnUnimplemented('Walking.walkToLeftWall');
@@ -63,17 +78,21 @@ export class BridgeWalking {
     };
 
     Walking.stopMoving = () => {
-      warnUnimplemented('Walking.stopMoving');
+      walkTarget = null;
+      sendDllFeature('walkTargetActive', false);
     };
 
     Walking.isMoving = () => {
-      warnUnimplemented('Walking.isMoving');
-      return false;
+      if (!walkTarget) return false;
+      const p = playerPos();
+      if (!p) return false;
+      return Math.hypot(p.x - walkTarget.x, p.y - walkTarget.y) > 0.6;
     };
 
-    Walking.hasReached = (_position: Position, _tolerance = 0.5) => {
-      warnUnimplemented('Walking.hasReached');
-      return false;
+    Walking.hasReached = (position: Position, tolerance = 0.5) => {
+      const p = playerPos();
+      if (!p) return false;
+      return Math.hypot(p.x - position.x, p.y - position.y) <= tolerance;
     };
 
     Walking.nexus = () => {
@@ -134,13 +153,11 @@ export class BridgeWalking {
       }
     };
 
+    // No teleportAllowed gate here: that MAPINFO flag governs player-to-player
+    // teleports. Beacon teleports work in realms where the flag is false.
     Walking.teleportToBeacon = (objectId: number): boolean => {
       const c = deps.clientRef.current;
       if (!c?.connected) return false;
-      if (!c.playerData.teleportAllowed) {
-        Logger.warn('Walking', 'teleportToBeacon: teleport not allowed in this map');
-        return false;
-      }
       try {
         const pkt = deps.proxy.packetFactory.createByName('TELEPORT');
         pkt.data.objectId = objectId;

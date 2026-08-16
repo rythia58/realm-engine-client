@@ -287,7 +287,8 @@ export class InternalBridge extends EventEmitter {
     const valueType: 'b' | 'n' | 's'
       = typeof value === 'boolean' ? 'b' : (typeof value === 'number' ? 'n' : 's');
     const msg: DllMessage = { type: 'setFeature', key, valueType, value };
-    if (key !== 'internalUnloadDll') {
+    // Chunked payloads are re-sent in full after auth; replaying a lone chunk is useless.
+    if (key !== 'internalUnloadDll' && key !== 'visualScriptChunk') {
       this.lastSentFeatures.set(key, { ...msg });
     }
     this.send(msg);

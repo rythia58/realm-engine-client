@@ -15,6 +15,7 @@
 #include <thread>
 #include <Il2CppResolver.h>
 #include "AutoAim.h"
+#include "AutoAbility.h"
 #include "RuntimeOffsets.h"
 #include "BootGate.h"
 #include "DiagBridge.h"
@@ -31,6 +32,9 @@
 #include "HwidCapture.h"
 #include "NoclipHook.h"
 #include "keybinds.h"
+#include "gui/Theme.h"
+#include "gui/tabs/PluginsTAB.h"
+#include "gui/tabs/ScriptsTAB.h"
 #include "gui/tabs/WorldTAB.h"
 
 namespace {
@@ -198,6 +202,7 @@ HRESULT __stdcall dPresent(IDXGISwapChain* __this, UINT SyncInterval, UINT Flags
 	SpeedHack::LogTimingProbe("pre_apply_timescale");
 	// #endregion
 	AutoAim::Tick();         // entity dict walk — uses GameState::GetWorldMgr()
+	AutoAbility::Tick();     // class-aware ability use — reads AutoAim target
 	BagLooter::Tick();       // throttled bag scan + ext-goal routing
 	BootGate::Tick();        // boot gating loop (runs EnsureAll + audit)
 	DiagBridge::Tick();      // mirror live state to %LOCALAPPDATA%\RealmEngine\diag.json
@@ -211,6 +216,10 @@ HRESULT __stdcall dPresent(IDXGISwapChain* __this, UINT SyncInterval, UINT Flags
 		UpdateCachedClientSize();
 
 		ImGui::CreateContext();
+		ImGui::GetIO().IniFilename = Theme::IniPath();
+		Theme::LoadFonts();
+		Theme::Load();
+		Theme::Apply();
 		ImGui_ImplWin32_Init(DirectX::window);
 		ImGui_ImplDX11_Init(DirectX::pDevice, DirectX::pContext);
 
@@ -246,46 +255,46 @@ HRESULT __stdcall dPresent(IDXGISwapChain* __this, UINT SyncInterval, UINT Flags
 
 		// Render menu when open.
 		if (settings.bShowMenu) {
-			// Menu layout — two stacked windows anchored to the top-left of the
-			// game surface. Sizes are fixed to keep the ImGui state deterministic
-			// across resolutions; the tab bar is 36 px tall and the content
-			// panel is 420 x 560 immediately below it.
-			constexpr float kMenuBarWidth   = 1000.0f;
-			constexpr float kMenuBarHeight  =   36.0f;
-			constexpr float kMenuContentW   =  420.0f;
-			constexpr float kMenuContentH   =  560.0f;
+			ImGui::SetNextWindowPos(ImVec2(60.f, 60.f), ImGuiCond_FirstUseEver);
+			ImGui::SetNextWindowSize(ImVec2(560.f, 640.f), ImGuiCond_FirstUseEver);
+			ImGui::SetNextWindowSizeConstraints(ImVec2(440.f, 340.f), ImVec2(FLT_MAX, FLT_MAX));
+			ImGui::Begin("RealmEngine##Menu", nullptr,
+				ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+				ImGuiWindowFlags_NoScrollbar);
 
-			ImGui::SetNextWindowSize(ImVec2(kMenuBarWidth, kMenuBarHeight), ImGuiCond_Always);
-			ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
-			ImGui::Begin("##MenuBar", nullptr,
-				ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-				ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
-				ImGuiWindowFlags_NoSavedSettings);
+			if (ImFont* title = Theme::TitleFont())
+				ImGui::PushFont(title, 0.f);
+			ImGui::TextColored(Theme::Get().accent, "REALM ENGINE");
+			if (Theme::TitleFont())
+				ImGui::PopFont();
+			ImGui::SameLine();
+			ImGui::TextDisabled("  %s to close", KeyBinds::ToString(settings.KeyBinds.Toggle_Menu));
 
-			// Tab bar — the order here is the single source of truth for the
-			// tab index used in the switch below. Keep the two in lockstep.
+			// Tab order here and in the switch below must stay in lockstep.
 			static int s_tab = 0;
-			const char* tabs[] = { "World", "Camera", "Player", "Combat", "Visuals", "Test" };
+			const char* tabs[] = { "Plugins", "Scripts", "Combat", "Player", "Camera", "Visuals", "World", "Test", "UI" };
 			for (int i = 0; i < IM_ARRAYSIZE(tabs); i++) {
-				if (i > 0) ImGui::SameLine();
-				if (ImGui::Button(tabs[i])) s_tab = i;
+				if (i > 0) ImGui::SameLine(0.f, 2.f);
+				if (Theme::TabButton(tabs[i], s_tab == i)) s_tab = i;
 			}
+			ImGui::Separator();
+
+			ImGui::BeginChild("##MenuContent", ImVec2(0.f, 0.f), ImGuiChildFlags_None);
+			switch (s_tab) {
+				case 0: PluginsTAB::Render(); break;
+				case 1: ScriptsTAB::Render(); break;
+				case 2: CombatTAB::Render();  break;
+				case 3: PlayerTAB::Render();  break;
+				case 4: CameraTAB::Render();  break;
+				case 5: VisualsTAB::Render(); break;
+				case 6: WorldTAB::Render();   break;
+				case 7: TestTAB::Render();    break;
+				case 8: Theme::DrawEditor();  break;
+			}
+			ImGui::EndChild();
 			ImGui::End();
 
-			ImGui::SetNextWindowSize(ImVec2(kMenuContentW, kMenuContentH), ImGuiCond_Always);
-			ImGui::SetNextWindowPos(ImVec2(0, kMenuBarHeight), ImGuiCond_Always);
-			ImGui::Begin("##MenuContent", nullptr,
-				ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-				ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
-			switch (s_tab) {
-				case 0: WorldTAB::Render();   break;
-				case 1: CameraTAB::Render();  break;
-				case 2: PlayerTAB::Render();  break;
-				case 3: CombatTAB::Render();  break;
-				case 4: VisualsTAB::Render(); break;
-				case 5: TestTAB::Render();    break;
-			}
-			ImGui::End();
+			ScriptsTAB::RenderEditorWindow();
 		}
 
 		ChatToast::Render();

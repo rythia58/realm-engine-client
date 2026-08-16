@@ -421,6 +421,7 @@
             <div class="plugin-hub-toolbar">
               <input type="search" id="plugin-search" class="plugin-search-input" placeholder="Search plugins…" data-i18n-placeholder="plugins.search.placeholder" autocomplete="off" spellcheck="false" aria-label="Search plugins" data-i18n-aria-label="plugins.search.aria">
               <select id="plugin-category" class="plugin-category-select" aria-label="Filter by category" data-i18n-aria-label="plugins.category.filter.aria"></select>
+              <button type="button" id="plugin-disable-all" class="setting-btn setting-btn-secondary plugin-disable-all-btn">Disable all plugins</button>
             </div>
             <div id="plugin-sidebar-list" class="plugin-sidebar-list" role="listbox" aria-label="Plugin list" data-i18n-aria-label="plugins.list.aria"></div>
           </aside>
@@ -1420,6 +1421,10 @@
       </div>
 
       <div id="tab-scripts" class="tab-panel dev-only" style="display:none;">
+        <div class="scripts-mode-bar">
+          <button type="button" id="scripts-mode-local" class="setting-btn scripts-mode-btn active">Local Scripts</button>
+          <button type="button" id="scripts-mode-visual" class="setting-btn setting-btn-secondary scripts-mode-btn">Visual Editor</button>
+        </div>
         <div id="scripts-sub-local" class="scripts-subpanel">
           <div id="scripts-hub" class="plugin-hub plugin-trainer scripts-workspace" aria-label="Developer scripts">
             <aside id="scripts-hub-sidebar" class="plugin-hub-sidebar">
@@ -1468,6 +1473,9 @@
               </section>
             </main>
           </div>
+        </div>
+        <div id="scripts-sub-visual" class="scripts-subpanel" style="display:none;">
+          <div id="visual-script-editor"></div>
         </div>
 
       </div>
@@ -2110,6 +2118,7 @@
 })();
 </script>
 <script src="eam-portrait.js"></script>
+<script src="visual-scripts.js"></script>
 <script type="module" src="app.js"></script>
 
 <!-- Quick Launch account picker popup -->

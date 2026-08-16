@@ -15167,3 +15167,6 @@ textarea.script-panel-input { min-height: 70px; resize: vertical; font-family: i
   padding: 12px 0;
   text-align: center;
 }
+
+.scripts-mode-bar { display: flex; gap: 8px; margin-bottom: 10px; }
+.scripts-mode-btn.active { outline: 1px solid #8f7bff; }

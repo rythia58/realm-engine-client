@@ -23,6 +23,13 @@ void IpcBridge_RequestShutdown();
 // Queue a signed ghost-hit event for the pipe thread.
 void IpcBridge_EmitPredictedHit(int ownerObjId, int bulletId);
 
+// Queue a signed plugin enable/disable request (from the in-game Plugins tab).
+void IpcBridge_EmitPluginSetEnabled(const char* pluginId, bool enabled);
+
+// Visual scripts: enable/disable, and editor requests (action = vsGet/vsSave/vsDelete).
+void IpcBridge_EmitVisualScriptSetEnabled(const char* scriptId, bool enabled);
+void IpcBridge_EmitVisualScriptEvent(const char* action, const char* payload);
+
 // ── AutoNexus threat list ────────────────────────────────────────────────
 struct IpcThreat {
     int32_t attackerObjId;
@@ -89,8 +96,8 @@ bool        IpcBridge_GetAutoAbilityEnabled();
 void        IpcBridge_SetAutoAbilityEnabled(bool enabled);
 float       IpcBridge_GetAutoAbilityMpPct();
 void        IpcBridge_SetAutoAbilityMpPct(float pctZeroTo100);
-int         IpcBridge_GetAutoAbilityWizardMode();
-void        IpcBridge_SetAutoAbilityWizardMode(int mode);
+int         IpcBridge_GetAutoAbilityItemType();
+void        IpcBridge_SetAutoAbilityItemType(int itemType);
 float       IpcBridge_GetWalkTargetX();
 float       IpcBridge_GetWalkTargetY();
 bool        IpcBridge_GetWalkTargetActive();

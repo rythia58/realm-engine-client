@@ -111,8 +111,8 @@ bool    IpcBridge_GetAutoAbilityEnabled()                     { return FeatureSt
 void    IpcBridge_SetAutoAbilityEnabled(bool enabled)         { FeatureState::SetAutoAbilityEnabled(enabled); }
 float   IpcBridge_GetAutoAbilityMpPct()                       { return FeatureState::GetAutoAbilityMpPct(); }
 void    IpcBridge_SetAutoAbilityMpPct(float pct)              { FeatureState::SetAutoAbilityMpPct(pct); }
-int     IpcBridge_GetAutoAbilityWizardMode()                  { return FeatureState::GetAutoAbilityWizardMode(); }
-void    IpcBridge_SetAutoAbilityWizardMode(int mode)          { FeatureState::SetAutoAbilityWizardMode(mode); }
+int     IpcBridge_GetAutoAbilityItemType()                    { return FeatureState::GetAutoAbilityItemType(); }
+void    IpcBridge_SetAutoAbilityItemType(int itemType)        { FeatureState::SetAutoAbilityItemType(itemType); }
 
 float   IpcBridge_GetWalkTargetX()                            { return FeatureState::GetWalkTargetX(); }
 float   IpcBridge_GetWalkTargetY()                            { return FeatureState::GetWalkTargetY(); }
@@ -145,17 +145,44 @@ void IpcBridge_RequestShutdown() { s_shutdown = true; }
 
 // Pending pipe events
 
-struct PendingEvent { char pluginId[32]; char action[128]; };
+struct PendingEvent { std::string pluginId; std::string action; bool value = true; };
 static std::mutex s_pendingEventsMutex;
 static std::vector<PendingEvent> s_pendingEvents;
 static constexpr size_t kPendingEventsCap = 64;
+
+static void QueueEvent(const char* pluginId, std::string action, bool value)
+{
+    if (!pluginId || !*pluginId) return;
+    PendingEvent ev;
+    ev.pluginId = pluginId;
+    ev.action = std::move(action);
+    ev.value = value;
+    std::lock_guard<std::mutex> lk(s_pendingEventsMutex);
+    if (s_pendingEvents.size() < kPendingEventsCap) s_pendingEvents.push_back(std::move(ev));
+}
+
 void IpcBridge_EmitPredictedHit(int ownerObjId, int bulletId)
 {
-    PendingEvent ev{};
-    std::snprintf(ev.pluginId, sizeof(ev.pluginId), "%s", "ghostHit");
-    std::snprintf(ev.action, sizeof(ev.action), "%d:%d", ownerObjId, bulletId);
-    std::lock_guard<std::mutex> lk(s_pendingEventsMutex);
-    if (s_pendingEvents.size() < kPendingEventsCap) s_pendingEvents.push_back(ev);
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%d:%d", ownerObjId, bulletId);
+    QueueEvent("ghostHit", buf, true);
+}
+
+void IpcBridge_EmitPluginSetEnabled(const char* pluginId, bool enabled)
+{
+    QueueEvent(pluginId, "setPluginEnabled", enabled);
+}
+
+void IpcBridge_EmitVisualScriptSetEnabled(const char* scriptId, bool enabled)
+{
+    if (!scriptId || !*scriptId) return;
+    QueueEvent((std::string("vs.") + scriptId).c_str(), "setEnabled", enabled);
+}
+
+void IpcBridge_EmitVisualScriptEvent(const char* action, const char* payload)
+{
+    if (!action || !payload) return;
+    QueueEvent("visualScript", std::string(action) + ":" + payload, true);
 }
 
 static std::mutex s_threatsMutex;
@@ -247,8 +274,8 @@ static bool WriteThreats(HANDLE hPipe, char* msgBuf, int msgBufSize)
 static bool WriteSignedHotkeyEvent(HANDLE hPipe, char* msgBuf, int msgBufSize, const char* pluginId, const char* action, bool value)
 {
     if (!hPipe || !msgBuf || !pluginId || !action) return false;
-    char payload[128] = {};
-    snprintf(payload, sizeof(payload), "%s|%s|%s", pluginId, action, value ? "true" : "false");
+    std::string payloadStr = std::string(pluginId) + "|" + action + "|" + (value ? "true" : "false");
+    const char* payload = payloadStr.c_str();
     const uint64_t outSeq = s_auth.nextServerSeq++;
     char outMac[65] = {};
     if (!IpcSession::ComputeSessionMacHex(s_auth.sessionKey, outSeq, "hotkeyEvent", payload, outMac)) return false;
@@ -335,9 +362,8 @@ static bool ParseSetFeatureCommand(char* json, const char* seqStr, const char* m
     } else {
         return false;
     }
-    char payload[8192] = {};
-    snprintf(payload, sizeof(payload), "%s|%s|%s", out->key, out->valueType, out->value);
-    if (!IpcSession::VerifyClientSeqAndMac(&s_auth, seqStr, macHex, "setFeature", payload)) {
+    const std::string payload = std::string(out->key) + "|" + out->valueType + "|" + out->value;
+    if (!IpcSession::VerifyClientSeqAndMac(&s_auth, seqStr, macHex, "setFeature", payload.c_str())) {
         DBG_FILE_LOG("[IpcBridge] setFeature HMAC REJECTED: key=" << out->key << " valueType=" << out->valueType << " value=" << out->value);
         return false;
     }
@@ -556,7 +582,7 @@ DWORD WINAPI IpcBridgeThread(LPVOID)
                     if (!s_pendingEvents.empty()) drained.swap(s_pendingEvents);
                 }
                 for (const auto& ev : drained) {
-                    if (!WriteSignedHotkeyEvent(hPipe, msgBuf, sizeof(msgBuf), ev.pluginId, ev.action, true)) {
+                    if (!WriteSignedHotkeyEvent(hPipe, msgBuf, sizeof(msgBuf), ev.pluginId.c_str(), ev.action.c_str(), ev.value)) {
                         connected = false;
                         break;
                     }

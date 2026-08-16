@@ -1144,6 +1144,32 @@ export class DevServer {
 
   private internalBridge: InternalBridge | null = null;
   private lastUnresolvedClasses: string[] | null = null;
+  private visualScripts: import('../../scripts/visual/VisualScriptManager.js').VisualScriptManager | null = null;
+  private visualLiveTimer: NodeJS.Timeout | null = null;
+
+  setVisualScriptManager(m: import('../../scripts/visual/VisualScriptManager.js').VisualScriptManager): void {
+    this.visualScripts = m;
+    this.syncVisualScriptListToDll();
+    m.setStateNotify(() => {
+      this.broadcastToDashboard({ type: 'visualScripts', list: m.list() });
+      this.syncPluginHotkeysToDll();
+      this.syncPluginStatesToDll();
+      this.syncVisualScriptListToDll();
+    });
+    if (!this.visualLiveTimer) {
+      this.visualLiveTimer = setInterval(() => {
+        const states = m.liveState();
+        if (states.length) this.broadcastToDashboard({ type: 'visualScriptLive', states });
+      }, 500);
+    }
+  }
+
+  private broadcastToDashboard(msg: unknown): void {
+    const data = JSON.stringify(msg);
+    for (const client of this.wss.clients) {
+      if (client.readyState === WebSocket.OPEN) client.send(data);
+    }
+  }
 
   /** Stash the named-pipe bridge so other dashboard subsystems can talk to the injected DLL. */
   setInternalBridge(bridge: InternalBridge): void {
@@ -1151,6 +1177,8 @@ export class DevServer {
     bridge.on('authenticated', () => {
       this.broadcastInternalState();
       this.syncPluginHotkeysToDll();
+      this.syncPluginStatesToDll();
+      this.syncVisualScriptListToDll();
     });
     bridge.on('disconnected',  () => this.broadcastInternalState());
     bridge.on('unresolvedClasses', (list: string[]) => {
@@ -3572,6 +3600,30 @@ export class DevServer {
           this.broadcastPluginState();
           this.syncPluginHotkeysToDll();
           this.scheduleAutosave();
+        } else if (msg.type === 'visualScriptDefs') {
+          if (this.visualScripts && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'visualScriptDefs', defs: this.visualScripts.nodeDefsForEditor() }));
+          }
+        } else if (msg.type === 'visualScriptList') {
+          if (this.visualScripts && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'visualScripts', list: this.visualScripts.list() }));
+          }
+        } else if (msg.type === 'visualScriptGet') {
+          if (this.visualScripts && ws.readyState === WebSocket.OPEN) {
+            const graph = this.visualScripts.get(String(msg.id ?? ''));
+            ws.send(JSON.stringify({ type: 'visualScriptGraph', id: msg.id, graph: graph ?? null }));
+          }
+        } else if (msg.type === 'visualScriptSave') {
+          if (this.visualScripts) {
+            const result = this.visualScripts.save(String(msg.id ?? ''), msg.graph);
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'visualScriptSaveResult', id: msg.id, ok: result.ok, errors: result.errors ?? null }));
+            }
+          }
+        } else if (msg.type === 'visualScriptToggle') {
+          this.visualScripts?.setEnabled(String(msg.id ?? ''), msg.enabled === true);
+        } else if (msg.type === 'visualScriptDelete') {
+          this.visualScripts?.remove(String(msg.id ?? ''));
         } else if (msg.type === 'resetPluginSettings') {
           const changed = this.pluginManager.resetPluginSettings(String(msg.pluginId ?? ''));
           if (ws.readyState === WebSocket.OPEN) {
@@ -3580,6 +3632,14 @@ export class DevServer {
               pluginId: msg.pluginId,
               changedKeys: changed,
             }));
+          }
+          this.broadcastPluginState();
+          this.scheduleAutosave();
+        } else if (msg.type === 'disableAllPlugins') {
+          for (const p of this.pluginManager.getPlugins()) {
+            if (p.enabled && !p.hotkeyLocked) {
+              this.pluginManager.togglePlugin(p.id, false);
+            }
           }
           this.broadcastPluginState();
           this.scheduleAutosave();
@@ -3858,11 +3918,74 @@ export class DevServer {
         client.send(pluginData);
       }
     }
+    this.syncPluginStatesToDll();
+  }
+
+  /** Feature values are bounded by the DLL's parse buffer, so large payloads ship as chunks. */
+  private sendChunkedToDll(target: string, text: string): void {
+    const CHUNK = 6000;
+    const total = Math.max(1, Math.ceil(text.length / CHUNK));
+    for (let i = 0; i < total; i++) {
+      const part = text.slice(i * CHUNK, (i + 1) * CHUNK);
+      this.internalBridge?.setFeature('visualScriptChunk', `${target}|${i}|${total}|${part}`);
+    }
+  }
+
+  private syncVisualScriptListToDll(): void {
+    if (!this.visualScripts) return;
+    try {
+      const rows = this.visualScripts.list()
+        .map(s => [s.id, encodeURIComponent(s.name), s.enabled ? '1' : '0', String(s.nodeCount), s.status].join('|'));
+      this.sendChunkedToDll('list', rows.join(';'));
+      this.sendChunkedToDll('defs', this.visualScripts.defsToDllText());
+    } catch (err) {
+      Logger.warn('DevServer', `visual script list sync failed: ${(err as Error).message}`);
+    }
+  }
+
+  /** DLL asked for one graph, or sent an edited one back. */
+  handleVisualScriptDllEvent(action: string, payload: string): void {
+    if (!this.visualScripts) return;
+    if (action === 'vsGet') {
+      const graph = this.visualScripts.get(payload);
+      if (!graph) {
+        Logger.warn('DevServer', `In-game editor requested unknown script "${payload}"`);
+        return;
+      }
+      const text = payload + '\n' + this.visualScripts.toDllText(graph);
+      Logger.log('DevServer', `In-game editor loading "${payload}" (${text.length} bytes)`);
+      this.sendChunkedToDll('graph', text);
+      return;
+    }
+    if (action === 'vsSave') {
+      const nl = payload.indexOf('\n');
+      if (nl <= 0) return;
+      const id = payload.slice(0, nl);
+      const graph = this.visualScripts.fromDllText(payload.slice(nl + 1));
+      const result = this.visualScripts.save(id, graph);
+      Logger.log('DevServer', `In-game editor saved "${id}" (${result.ok ? 'ok' : 'failed'})`);
+      return;
+    }
+    if (action === 'vsDelete') this.visualScripts.remove(payload);
+  }
+
+  private syncPluginStatesToDll(): void {
+    try {
+      const clean = (s: unknown) => String(s ?? '').replace(/[|;]/g, ' ').trim();
+      const rows = this.pluginManager.getPlugins()
+        .map((p) => [clean(p.id), clean(p.name), clean(p.category), p.enabled ? '1' : '0', p.hotkeyLocked ? '1' : '0', clean(p.hotkey || '')].join('|'));
+      this.internalBridge?.setFeature('pluginStates', rows.join(';'));
+    } catch (err) {
+      Logger.warn('DevServer', `plugin state sync failed: ${(err as Error).message}`);
+    }
   }
 
   private syncPluginHotkeysToDll(): void {
     try {
-      const bindings = this.pluginManager.getPluginHotkeyBindings();
+      const bindings = [
+        ...this.pluginManager.getPluginHotkeyBindings(),
+        ...(this.visualScripts?.hotkeyBindings() ?? []),
+      ];
       const payload = bindings
         .map((b) => `${b.pluginId}=${b.hotkey}`)
         .join(';');
@@ -3887,6 +4010,16 @@ export class DevServer {
     const action = String(msg?.action || '');
     const value = msg?.value === true;
 
+    if (pluginId === 'visualScript') {
+      const sep = action.indexOf(':');
+      if (sep > 0) this.handleVisualScriptDllEvent(action.slice(0, sep), action.slice(sep + 1));
+      return false;
+    }
+    if (pluginId.startsWith('vs.') && action === 'setEnabled') {
+      this.visualScripts?.setEnabled(pluginId.slice(3), value);
+      return false;
+    }
+
     if (pluginId === 'socket' && action === 'toggle') {
       return this.pluginManager.updateSetting('socket', 'toggle', true);
     }
@@ -3894,8 +4027,15 @@ export class DevServer {
       return this.pluginManager.updateSetting('player-noclip', 'noclipEnabled', value);
     }
     if (action === 'togglePlugin') {
+      if (this.visualScripts?.handleHotkeyEvent(pluginId)) return false;
       const result = this.pluginManager.togglePluginByHotkey(pluginId);
       return result.ok;
+    }
+    if (action === 'setPluginEnabled') {
+      if (pluginId.startsWith('vs.')) {
+        return this.visualScripts?.setEnabled(pluginId.slice(3), value) ?? false;
+      }
+      return this.pluginManager.togglePlugin(pluginId, value).ok;
     }
     if (pluginId === 'ghostHit') {
       this.handleGhostHitEvent(action);

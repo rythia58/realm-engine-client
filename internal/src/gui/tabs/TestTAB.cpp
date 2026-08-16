@@ -582,7 +582,14 @@ static void MovePlayer(float targetWorldX, float targetWorldY, float dt,
     float tps = DodgeRuntime::GetTilesPerSec(player);
     if (tps <= 0.f) tps = 4.f + 5.6f * (50.f / 75.f);
 
-    float maxStep = tps * dt * speedMult;
+    // A frame hitch would otherwise produce one huge step the server rejects
+    // (rubber-band), and running at exactly max speed leaves no slack for
+    // latency — hold slightly under and cap the per-frame delta.
+    constexpr float kMaxMoveDt   = 0.05f;
+    constexpr float kSpeedSafety = 0.90f;
+    const float stepDt = (dt > kMaxMoveDt) ? kMaxMoveDt : dt;
+
+    float maxStep = tps * stepDt * speedMult * kSpeedSafety;
 
     {
         float tileSpd = WorldTAB::GetTileSpeed(

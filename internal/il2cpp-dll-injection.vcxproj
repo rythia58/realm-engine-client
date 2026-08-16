@@ -85,6 +85,10 @@
     <ClCompile Include="src\features\loot\BagLooter.cpp" />
     <ClCompile Include="src\features\combat\autonexus\AutoNexus.cpp" />
     <ClCompile Include="src\features\combat\ghostHit\GhostHit.cpp" />
+    <ClCompile Include="src\gui\Theme.cpp" />
+    <ClCompile Include="src\gui\tabs\PluginsTAB.cpp" />
+    <ClCompile Include="src\gui\tabs\ScriptsTAB.cpp" />
+    <ClCompile Include="src\features\runtime\VisualScriptStore.cpp" />
     <ClCompile Include="src\gui\tabs\VisualsTAB.cpp" />
     <ClCompile Include="src\platform\hooks\DirectX.cpp" />
     <ClCompile Include="src\platform\hooks\InitHooks.cpp" />
@@ -203,6 +207,10 @@
     <ClInclude Include="src\gui\tabs\PlayerTAB.h" />
     <ClInclude Include="src\gui\tabs\TestTAB.h" />
     <ClInclude Include="src\gui\tabs\CombatTab\CombatTAB.h" />
+    <ClInclude Include="src\gui\Theme.h" />
+    <ClInclude Include="src\gui\tabs\PluginsTAB.h" />
+    <ClInclude Include="src\gui\tabs\ScriptsTAB.h" />
+    <ClInclude Include="src\features\runtime\VisualScriptStore.h" />
     <ClInclude Include="src\gui\tabs\VisualsTAB.h" />
     <ClInclude Include="src\game\math\W2S.h" />
     <ClInclude Include="src\platform\hooks\DirectX.h" />

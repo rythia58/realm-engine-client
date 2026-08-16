@@ -448,6 +448,35 @@ async function main() {
     scriptHost.setScriptsStateNotify(() => {
       devServer?.broadcastScriptsState();
     });
+
+    // Visual (node graph) scripts — reuses the bridged SDK for movement/chat.
+    const { VisualScriptManager } = await import('./scripts/visual/VisualScriptManager.js');
+    const { buildNodeContext } = await import('./scripts/visual/VisualScriptContext.js');
+    const { chat: sdkChat } = await import('@realmengine/sdk');
+    const visualScripts = new VisualScriptManager((scriptId, saved) =>
+      buildNodeContext({
+        clientRef: bridgeClientRef,
+        worldState,
+        gameData,
+        proxy,
+        pluginManager,
+        onPluginStateChanged: () => devServer?.broadcastPluginState(),
+        emitLog: (id, line, level) => devServer?.broadcastScriptLog(id, line, level),
+      }, scriptId, saved),
+    );
+    devServer.setVisualScriptManager(visualScripts);
+    sdkChat.onMessage((e: { text?: string; sender?: string }) => {
+      visualScripts.postEvent({ type: 'chat', payload: { text: e.text ?? '', sender: e.sender ?? '' } });
+    });
+    let lastMapName = '';
+    setInterval(() => {
+      const map = bridgeClientRef.current?.playerData.mapName ?? '';
+      if (map && map !== lastMapName) {
+        lastMapName = map;
+        visualScripts.postEvent({ type: 'mapChange', payload: { map } });
+      }
+    }, 1000);
+
     devServer.start(4440);
   }
 

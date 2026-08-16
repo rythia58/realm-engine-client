@@ -33,6 +33,7 @@
 #include <cstring>
 #include "FeatureState.h"
 #include "FeatureRuntime.h"
+#include "VisualScriptStore.h"
 #include "FloatingTextService.h"
 #include "FeatureCommandRegistry.h"
 
@@ -119,7 +120,7 @@ namespace {
             FH_FLOAT("speedHackMult", SpeedHack::SetMultiplier),
             FH_BOOL("autoAbilityEnabled", IpcBridge_SetAutoAbilityEnabled),
             FH_FLOAT("autoAbilityMpPct", IpcBridge_SetAutoAbilityMpPct),
-            FH_INT("autoAbilityWizardMode", IpcBridge_SetAutoAbilityWizardMode),
+            FH_INT("autoAbilityItemType", IpcBridge_SetAutoAbilityItemType),
             FH_INT("targetFrameRate", FpsSetter::SetTargetFps),
             FH_TEXT("showPluginFloatingText", FloatingTextService::QueuePluginText)
         };
@@ -243,6 +244,8 @@ namespace {
             FH("socketHotkeyActive",      FeatureState::SetSocketHotkeyActive(f.Bool())),
             FH("socketHotkey",            FeatureState::SetSocketHotkeyVk(ResolveHotkeyVkInternal(f.value))),
             FH("pluginToggleHotkeys",     FeatureRuntime::ApplyPluginToggleHotkeys(f.value)),
+            FH("pluginStates",            FeatureRuntime::ApplyPluginStates(f.value)),
+            FH("visualScriptChunk",       VisualScriptStore::ApplyChunk(f.value)),
             FH("walkTargetX",             FeatureState::SetWalkTarget(f.Float(), FeatureState::GetWalkTargetY(), FeatureState::GetWalkTargetActive())),
             FH("walkTargetY",             FeatureState::SetWalkTarget(FeatureState::GetWalkTargetX(), f.Float(), FeatureState::GetWalkTargetActive())),
             FH("walkTargetActive",        FeatureState::SetWalkTarget(FeatureState::GetWalkTargetX(), FeatureState::GetWalkTargetY(), f.Bool())),

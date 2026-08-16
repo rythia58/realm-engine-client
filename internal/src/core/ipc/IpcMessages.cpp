@@ -14,6 +14,8 @@
 
 #include <cstdio>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 
 namespace IpcMessages {
 
@@ -56,9 +58,47 @@ int BuildPlayer(char* buf, int bufSize, uint64_t seq, const char* mac)
     return snprintf(buf, bufSize, "{\"type\":\"player\",\"alive\":true,\"hp\":%d,\"maxHp\":%d,\"def\":%d,\"posX\":%.3f,\"posY\":%.3f,\"seq\":\"%llu\",\"mac\":\"%s\"}", hp, maxHp, def, (double)posX, (double)posY, static_cast<unsigned long long>(seq), mac);
 }
 
+// Escapes into a JSON string body. Returns false if it would overflow.
+static bool JsonEscapeInto(char* out, int outSize, const char* in)
+{
+    int w = 0;
+    for (const char* p = in; *p; ++p) {
+        const unsigned char c = (unsigned char)*p;
+        const char* esc = nullptr;
+        char ubuf[8];
+        switch (c) {
+            case '"':  esc = "\\\""; break;
+            case '\\': esc = "\\\\"; break;
+            case '\n': esc = "\\n";  break;
+            case '\r': esc = "\\r";  break;
+            case '\t': esc = "\\t";  break;
+            default:
+                if (c < 0x20) { snprintf(ubuf, sizeof(ubuf), "\\u%04x", c); esc = ubuf; }
+                break;
+        }
+        if (esc) {
+            const int len = (int)strlen(esc);
+            if (w + len >= outSize) return false;
+            memcpy(out + w, esc, len);
+            w += len;
+        } else {
+            if (w + 1 >= outSize) return false;
+            out[w++] = (char)c;
+        }
+    }
+    out[w] = 0;
+    return true;
+}
+
 int BuildHotkeyEvent(char* buf, int bufSize, const char* pluginId, const char* action, bool value, uint64_t seq, const char* mac)
 {
-    return snprintf(buf, bufSize, "{\"type\":\"hotkeyEvent\",\"pluginId\":\"%s\",\"action\":\"%s\",\"value\":%s,\"seq\":\"%llu\",\"mac\":\"%s\"}", pluginId, action, value ? "true" : "false", static_cast<unsigned long long>(seq), mac);
+    const int escSize = bufSize;
+    char* esc = (char*)malloc((size_t)escSize);
+    if (!esc) return 0;
+    if (!JsonEscapeInto(esc, escSize, action)) { free(esc); return 0; }
+    const int n = snprintf(buf, bufSize, "{\"type\":\"hotkeyEvent\",\"pluginId\":\"%s\",\"action\":\"%s\",\"value\":%s,\"seq\":\"%llu\",\"mac\":\"%s\"}", pluginId, esc, value ? "true" : "false", static_cast<unsigned long long>(seq), mac);
+    free(esc);
+    return n;
 }
 
 int BuildThreats(char* buf, int bufSize, const char* threats, uint64_t seq, const char* mac)
