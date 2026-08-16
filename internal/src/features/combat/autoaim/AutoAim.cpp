@@ -115,6 +115,14 @@ static void RunTick()
 
 namespace AutoAim {
 
+// The AutoAim loop thread waits on this: hook installation uses
+// DetourTransactionBegin, which suspends all threads, so it must stay on the
+// render thread. Once these report installed, the loop thread owns the tick.
+bool IsInstalled()
+{
+    return ProjectileTracking::IsInstalled() && AimHooks::IsInstalled();
+}
+
 void Install()
 {
     // Lazy installs — safe to call every tick; each guards itself
