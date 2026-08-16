@@ -20,7 +20,7 @@
   let dirty = false;
 
   let view = { x: 40, y: 40, scale: 1 };
-  let selection = { nodeId: null, linkIndex: -1 };
+  let selection = { nodeId: null, linkKey: null };
   let dragState = null;
   let linkDrag = null;
   let liveActive = {};
@@ -30,6 +30,37 @@
   function send(msg) { if (sendFn) sendFn(msg); }
 
   function uid() { return 'n' + Math.random().toString(36).slice(2, 8); }
+
+  function linkKey(l) { return [l.from, l.fromPort, l.to, l.toPort, l.kind].join('\u0001'); }
+
+  // Drop radius in screen px. The old code required releasing on the 10px dot
+  // itself, which made connecting a link far harder than it needed to be.
+  const PORT_SNAP_PX = 26;
+
+  function nearestPortDot(clientX, clientY, drag) {
+    let best = null;
+    let bestD = PORT_SNAP_PX * PORT_SNAP_PX;
+    const dots = els.nodeLayer.querySelectorAll('.vs-port-dot');
+    for (let i = 0; i < dots.length; i++) {
+      const dot = dots[i];
+      if (drag) {
+        if (dot.dataset.side === drag.side) continue;
+        if (dot.dataset.portType !== drag.portType) continue;
+        if (dot.dataset.nodeId === drag.from) continue;
+      }
+      const r = dot.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const d = (cx - clientX) * (cx - clientX) + (cy - clientY) * (cy - clientY);
+      if (d < bestD) { bestD = d; best = dot; }
+    }
+    return best;
+  }
+
+  function highlightDropTarget(dot) {
+    els.nodeLayer.querySelectorAll('.vs-port-dot.vs-drop').forEach(d => d.classList.remove('vs-drop'));
+    if (dot) dot.classList.add('vs-drop');
+  }
 
   function markDirty() {
     dirty = true;
@@ -133,11 +164,15 @@
         if (currentId) updateEnableBtn();
         return true;
       case 'visualScriptGraph':
+        if (msg.id === currentId && !msg.graph) {
+          setStatus('Script "' + msg.id + '" could not be loaded', true);
+          return true;
+        }
         if (msg.id === currentId && msg.graph) {
           graph = msg.graph;
           dirty = false;
           els.saveBtn.classList.remove('vs-attention');
-          selection = { nodeId: null, linkIndex: -1 };
+          selection = { nodeId: null, linkKey: null };
           renderAll();
         }
         return true;
@@ -163,7 +198,7 @@
   function newScript() {
     const name = prompt('Script name:', 'New Script');
     if (!name) return;
-    const id = name.replace(/[^a-zA-Z0-9-_ ]/g, '').trim();
+    const id = name.replace(/[^a-zA-Z0-9-_ ]/g, '').trim().slice(0, 64);
     if (!id) return;
     graph = {
       version: '1.0', name, enabled: false, idleFailSafeSec: 60,
@@ -283,7 +318,7 @@
     const node = { id: uid(), type, x: Math.round(x), y: Math.round(y), params: {} };
     (defsByType[type] ? defsByType[type].params : []).forEach(p => { node.params[p.key] = p.value; });
     graph.nodes.push(node);
-    selection = { nodeId: node.id, linkIndex: -1 };
+    selection = { nodeId: node.id, linkKey: null };
     markDirty();
     renderCanvas();
     renderSidebar();
@@ -334,7 +369,7 @@
 
     head.onmousedown = (e) => {
       e.stopPropagation();
-      selection = { nodeId: node.id, linkIndex: -1 };
+      selection = { nodeId: node.id, linkKey: null };
       dragState = { kind: 'node', nodeId: node.id, startX: e.clientX, startY: e.clientY, origX: node.x, origY: node.y };
       renderSidebar();
       refreshSelectionClasses();
@@ -343,7 +378,7 @@
       if (e.target.classList.contains('vs-port-dot')) return;
       e.stopPropagation();
       if (selection.nodeId !== node.id) {
-        selection = { nodeId: node.id, linkIndex: -1 };
+        selection = { nodeId: node.id, linkKey: null };
         renderSidebar();
         refreshSelectionClasses();
       }
@@ -366,29 +401,30 @@
 
     dot.onmousedown = (e) => {
       e.stopPropagation();
-      if (side === 'out') {
-        linkDrag = { from: node.id, fromPort: port.name, portType: port.type, mouseX: e.clientX, mouseY: e.clientY };
-      }
-    };
-    dot.onmouseup = (e) => {
-      if (linkDrag && side === 'in') {
-        e.stopPropagation();
-        completeLink(node.id, port.name, port.type);
-      }
+      linkDrag = {
+        from: node.id, fromPort: port.name, portType: port.type, side,
+        mouseX: e.clientX, mouseY: e.clientY,
+      };
     };
     return row;
   }
 
-  function completeLink(toId, toPort, toType) {
+  // Normalises either drag direction to output -> input before connecting.
+  function completeLinkToDot(dot) {
     if (!linkDrag || !graph) { linkDrag = null; return; }
-    const fromFlow = linkDrag.portType === 'flow';
-    const toFlow = toType === 'flow';
-    if (fromFlow !== toFlow) { linkDrag = null; renderLinks(); return; }
-    const kind = fromFlow ? 'flow' : 'data';
-    if (linkDrag.from === toId) { linkDrag = null; renderLinks(); return; }
+    const kind = linkDrag.portType === 'flow' ? 'flow' : 'data';
+    let fromId, fromPort, toId, toPort;
+    if (linkDrag.side === 'out') {
+      fromId = linkDrag.from; fromPort = linkDrag.fromPort;
+      toId = dot.dataset.nodeId; toPort = dot.dataset.port;
+    } else {
+      fromId = dot.dataset.nodeId; fromPort = dot.dataset.port;
+      toId = linkDrag.from; toPort = linkDrag.fromPort;
+    }
+    if (fromId === toId) { linkDrag = null; renderLinks(); return; }
     graph.links = graph.links.filter(l => !(l.to === toId && l.toPort === toPort && l.kind === kind) &&
-      !(kind === 'flow' && l.from === linkDrag.from && l.fromPort === linkDrag.fromPort && l.kind === 'flow'));
-    graph.links.push({ from: linkDrag.from, fromPort: linkDrag.fromPort, to: toId, toPort, kind });
+      !(kind === 'flow' && l.from === fromId && l.fromPort === fromPort && l.kind === 'flow'));
+    graph.links.push({ from: fromId, fromPort, to: toId, toPort, kind });
     linkDrag = null;
     markDirty();
     renderLinks();
@@ -409,17 +445,18 @@
     const svg = els.svg;
     svg.innerHTML = '';
     if (!graph) return;
-    graph.links.forEach((l, i) => {
+    graph.links.forEach((l) => {
       const a = portDotPos(l.from, l.fromPort, 'out');
       const b = portDotPos(l.to, l.toPort, 'in');
       if (!a || !b) return;
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       const dx = Math.max(40, Math.abs(b.x - a.x) / 2);
       path.setAttribute('d', 'M' + a.x + ',' + a.y + ' C' + (a.x + dx) + ',' + a.y + ' ' + (b.x - dx) + ',' + b.y + ' ' + b.x + ',' + b.y);
-      path.setAttribute('class', 'vs-link ' + (l.kind === 'flow' ? 'vs-link-flow' : 'vs-link-data') + (selection.linkIndex === i ? ' vs-selected' : ''));
+      const key = linkKey(l);
+      path.setAttribute('class', 'vs-link ' + (l.kind === 'flow' ? 'vs-link-flow' : 'vs-link-data') + (selection.linkKey === key ? ' vs-selected' : ''));
       path.onclick = (e) => {
         e.stopPropagation();
-        selection = { nodeId: null, linkIndex: i };
+        selection = { nodeId: null, linkKey: key };
         renderSidebar();
         renderLinks();
         refreshSelectionClasses();
@@ -427,7 +464,7 @@
       svg.appendChild(path);
     });
     if (linkDrag) {
-      const a = portDotPos(linkDrag.from, linkDrag.fromPort, 'out');
+      const a = portDotPos(linkDrag.from, linkDrag.fromPort, linkDrag.side);
       if (a) {
         const canvasRect = els.canvas.getBoundingClientRect();
         const bx = (linkDrag.mouseX - canvasRect.left) / view.scale;
@@ -468,8 +505,10 @@
     sb.appendChild(fieldText('Name', graph.name, v => { graph.name = v; markDirty(); }));
     sb.appendChild(fieldNumber('Idle fail-safe (sec, 0=off)', graph.idleFailSafeSec, v => { graph.idleFailSafeSec = v; markDirty(); }));
 
-    if (selection.linkIndex >= 0 && graph.links[selection.linkIndex]) {
-      const l = graph.links[selection.linkIndex];
+    const selLinkIdx = selection.linkKey
+      ? graph.links.findIndex(l => linkKey(l) === selection.linkKey) : -1;
+    if (selLinkIdx >= 0) {
+      const l = graph.links[selLinkIdx];
       const t = div('vs-side-title');
       t.textContent = 'Link';
       sb.appendChild(t);
@@ -477,8 +516,8 @@
       info.textContent = l.from + '.' + l.fromPort + ' → ' + l.to + '.' + l.toPort + ' (' + l.kind + ')';
       sb.appendChild(info);
       sb.appendChild(btn('Delete link', () => {
-        graph.links.splice(selection.linkIndex, 1);
-        selection.linkIndex = -1;
+        graph.links.splice(selLinkIdx, 1);
+        selection.linkKey = null;
         markDirty();
         renderLinks();
         renderSidebar();
@@ -574,7 +613,7 @@
     const id = selection.nodeId;
     graph.nodes = graph.nodes.filter(n => n.id !== id);
     graph.links = graph.links.filter(l => l.from !== id && l.to !== id);
-    selection = { nodeId: null, linkIndex: -1 };
+    selection = { nodeId: null, linkKey: null };
     markDirty();
     renderCanvas();
     renderSidebar();
@@ -585,7 +624,7 @@
   function bindCanvasEvents() {
     els.canvasWrap.onmousedown = (e) => {
       if (e.target !== els.canvasWrap && e.target !== els.canvas && e.target !== els.svg && e.target !== els.nodeLayer) return;
-      selection = { nodeId: null, linkIndex: -1 };
+      selection = { nodeId: null, linkKey: null };
       dragState = { kind: 'pan', startX: e.clientX, startY: e.clientY, origX: view.x, origY: view.y };
       renderSidebar();
       renderLinks();
@@ -596,6 +635,7 @@
       if (linkDrag) {
         linkDrag.mouseX = e.clientX;
         linkDrag.mouseY = e.clientY;
+        highlightDropTarget(nearestPortDot(e.clientX, e.clientY, linkDrag));
         renderLinks();
         return;
       }
@@ -618,10 +658,15 @@
       }
     });
 
-    window.addEventListener('mouseup', () => {
+    window.addEventListener('mouseup', (e) => {
       if (dragState && dragState.kind === 'node') markDirty();
       dragState = null;
-      if (linkDrag) { linkDrag = null; renderLinks(); }
+      if (linkDrag) {
+        const target = nearestPortDot(e.clientX, e.clientY, linkDrag);
+        highlightDropTarget(null);
+        if (target) completeLinkToDot(target);
+        else { linkDrag = null; renderLinks(); }
+      }
     });
 
     els.canvasWrap.addEventListener('wheel', (e) => {
@@ -645,9 +690,10 @@
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selection.nodeId) deleteSelectedNode();
-        else if (selection.linkIndex >= 0 && graph) {
-          graph.links.splice(selection.linkIndex, 1);
-          selection.linkIndex = -1;
+        else if (selection.linkKey && graph) {
+          const i = graph.links.findIndex(l => linkKey(l) === selection.linkKey);
+          if (i >= 0) graph.links.splice(i, 1);
+          selection.linkKey = null;
           markDirty();
           renderLinks();
           renderSidebar();
@@ -698,6 +744,7 @@
 .vs-port-dot { width:10px; height:10px; border-radius:50%; background:#4a90d9; cursor:crosshair; flex:none; }
 .vs-port-dot.vs-flow { border-radius:2px; background:#c9a227; }
 .vs-port-dot:hover { outline:2px solid #fff5; }
+.vs-port-dot.vs-drop { outline:3px solid #fff; transform:scale(1.5); }
 .vs-node-id { font-size:9px; color:#667; padding:0 6px 3px; text-align:right; }
 .vs-link { fill:none; stroke-width:2; cursor:pointer; pointer-events:stroke; }
 .vs-link-flow { stroke:#c9a227; }

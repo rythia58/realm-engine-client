@@ -184,6 +184,9 @@ namespace RuntimeOffsets {
         Silenced         = 1ull << 47,
         Exposed          = 1ull << 48,
         Energized        = 1ull << 49,
+        // Bits 31-49 map 1:1 onto conditions[1] bits 0-18 and are confirmed.
+        // InCombat sits past a gap and is UNVERIFIED against this build --
+        // it only feeds the Test-tab readout, nothing reads it for logic.
         InCombat         = 1ull << 58,
     };
 

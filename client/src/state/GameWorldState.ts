@@ -79,6 +79,9 @@ export interface NearestEnemyFilter {
   hpUnder?: number;
   hpOver?: number;
   maxDistance?: number;
+  /** Skip entities whose last update is older than this many ms (drops ghosts
+   * that despawned or left view without a removedObjs). */
+  maxStaleMs?: number;
 }
 
 /**
@@ -112,8 +115,10 @@ export class GameWorldState {
     gameData: GameDataLoader,
     entity: TrackedEntity,
     origin: { x: number; y: number },
+    maxStaleMs?: number,
   ): { objectId: number; objectType: number; x: number; y: number; dist: number; hp: number; maxHp: number; hpPct: number } | null {
     if (gameData.getObjectCategory(entity.objectType) !== 'Enemy') return null;
+    if (maxStaleMs != null && Date.now() - entity.lastUpdate > maxStaleMs) return null;
 
     const x = Number(entity.pos?.x);
     const y = Number(entity.pos?.y);
@@ -433,7 +438,7 @@ export class GameWorldState {
 
     for (const e of this.entities.values()) {
       if (excludeObjectId != null && e.objectId === excludeObjectId) continue;
-      const candidate = this.buildEnemyCandidate(gameData, e, origin);
+      const candidate = this.buildEnemyCandidate(gameData, e, origin, filter?.maxStaleMs);
       if (!candidate) continue;
 
       if (filter) {
@@ -471,7 +476,7 @@ export class GameWorldState {
 
     for (const e of this.entities.values()) {
       if (excludeObjectId != null && e.objectId === excludeObjectId) continue;
-      const candidate = this.buildEnemyCandidate(gameData, e, origin);
+      const candidate = this.buildEnemyCandidate(gameData, e, origin, filter?.maxStaleMs);
       if (!candidate) continue;
 
       if (filter) {
@@ -509,7 +514,7 @@ export class GameWorldState {
     const matches: Array<{ objectId: number; objectType: number; x: number; y: number; dist: number; hp: number; maxHp: number; hpPct: number }> = [];
     for (const e of this.entities.values()) {
       if (excludeObjectId != null && e.objectId === excludeObjectId) continue;
-      const candidate = this.buildEnemyCandidate(gameData, e, origin);
+      const candidate = this.buildEnemyCandidate(gameData, e, origin, filter?.maxStaleMs);
       if (!candidate) continue;
       if (filter) {
         if (filter.hpMin != null && candidate.hp < filter.hpMin) continue;

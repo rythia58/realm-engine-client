@@ -15,6 +15,8 @@ namespace IpcFraming {
 
 bool WriteMessage(HANDLE hPipe, const char* json, int len)
 {
+    // snprintf reports untruncated length, which can exceed the caller's buffer.
+    if (!json || len <= 0 || len > static_cast<int>(kMaxMessageBytes)) return false;
     uint32_t netLen = static_cast<uint32_t>(len);
     DWORD written = 0;
     if (!WriteFile(hPipe, &netLen, 4, &written, NULL) || written != 4) return false;

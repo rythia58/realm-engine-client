@@ -1954,6 +1954,10 @@ export class DevServer {
   stop(): void {
     stopSmartTrimScheduler();
     stopExaltTuneWatchdog();
+    if (this.visualLiveTimer) {
+      clearInterval(this.visualLiveTimer);
+      this.visualLiveTimer = null;
+    }
     this.playerDataIntervalStop?.();
     this.playerDataIntervalStop = null;
     this.runtimeScheduler.stop();
@@ -3944,8 +3948,40 @@ export class DevServer {
   }
 
   /** DLL asked for one graph, or sent an edited one back. */
+  private vsInbound = new Map<string, { parts: string[]; total: number; seen: number }>();
+
+  /** Oversized DLL payloads arrive as "<action>Chunk:<index>|<total>|<data>". */
+  private reassembleVisualScriptChunk(action: string, payload: string): { action: string; payload: string } | null {
+    const base = action.slice(0, -'Chunk'.length);
+    const first = payload.indexOf('|');
+    const second = payload.indexOf('|', first + 1);
+    if (first <= 0 || second <= first) return null;
+    const index = Number(payload.slice(0, first));
+    const total = Number(payload.slice(first + 1, second));
+    const data = payload.slice(second + 1);
+    if (!Number.isInteger(index) || !Number.isInteger(total)) return null;
+    if (total <= 0 || total > 512 || index < 0 || index >= total) return null;
+
+    let entry = this.vsInbound.get(base);
+    if (!entry || entry.total !== total || index === 0) {
+      entry = { parts: new Array<string>(total).fill(''), total, seen: 0 };
+      this.vsInbound.set(base, entry);
+    }
+    if (entry.parts[index] === '') entry.seen++;
+    entry.parts[index] = data;
+    if (entry.seen < total) return null;
+    this.vsInbound.delete(base);
+    return { action: base, payload: entry.parts.join('') };
+  }
+
   handleVisualScriptDllEvent(action: string, payload: string): void {
     if (!this.visualScripts) return;
+    if (action.endsWith('Chunk')) {
+      const done = this.reassembleVisualScriptChunk(action, payload);
+      if (!done) return;
+      action = done.action;
+      payload = done.payload;
+    }
     if (action === 'vsGet') {
       const graph = this.visualScripts.get(payload);
       if (!graph) {
@@ -3974,7 +4010,8 @@ export class DevServer {
       const clean = (s: unknown) => String(s ?? '').replace(/[|;]/g, ' ').trim();
       const rows = this.pluginManager.getPlugins()
         .map((p) => [clean(p.id), clean(p.name), clean(p.category), p.enabled ? '1' : '0', p.hotkeyLocked ? '1' : '0', clean(p.hotkey || '')].join('|'));
-      this.internalBridge?.setFeature('pluginStates', rows.join(';'));
+      // The DLL's feature value buffer is 32 KB and truncates silently.
+      this.sendChunkedToDll('pluginStates', rows.join(';'));
     } catch (err) {
       Logger.warn('DevServer', `plugin state sync failed: ${(err as Error).message}`);
     }

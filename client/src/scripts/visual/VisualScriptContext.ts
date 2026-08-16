@@ -19,6 +19,8 @@ export interface VisualContextDeps {
 }
 
 export function buildNodeContext(deps: VisualContextDeps, scriptId: string, saved: Map<string, Vec2>): NodeContext {
+  const warnedEffects = new Set<string>();
+
   const playerPos = (): Vec2 | null => {
     const pd = deps.clientRef.current?.playerData;
     return pd ? { x: pd.pos.x, y: pd.pos.y } : null;
@@ -39,6 +41,11 @@ export function buildNodeContext(deps: VisualContextDeps, scriptId: string, save
       try {
         return pd.hasConditionEffect(name as never);
       } catch {
+        // A typo'd effect name would otherwise read false forever.
+        if (!warnedEffects.has(name)) {
+          warnedEffects.add(name);
+          Logger.warn('VisualScripts', `[${scriptId}] unknown condition effect "${name}" - always false`);
+        }
         return false;
       }
     },
@@ -157,11 +164,13 @@ export function buildNodeContext(deps: VisualContextDeps, scriptId: string, save
     },
 
     sendChat: (text) => {
-      try { chat.send(text); } catch { /* not connected */ }
+      try { chat.send(text); } catch (err) { Logger.warn('VisualScripts', `[${scriptId}] sendChat failed: ${(err as Error).message}`); }
     },
 
     nexus: () => Walking.nexus(),
 
+    // Shared with every plugin reading world state, so this is deliberately
+    // a full reset and not something to call casually from a graph.
     resetTileCache: () => deps.worldState.clear(),
 
     mapName: () => deps.clientRef.current?.playerData.mapName ?? '',

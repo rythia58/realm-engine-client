@@ -74,7 +74,7 @@ src/
 │   ├── misc/            One-offs that don't warrant their own family
 │   ├── movement/        collider, dodge, noclip, pjdodge, repp, speedhack, zdodge
 │   ├── projectiles/     ProjectileStore, ProjectileRuntimeReader, ProjectileTrajectory
-│   ├── runtime/         Feature-runtime plumbing shared by combat/movement tabs
+│   ├── runtime/         Feature-runtime plumbing (FeatureRuntime, VisualScriptStore)
 │   └── visuals/         Cosmetic overlays and tile visualisation
 │
 ├── game/                Game-specific data — regenerated per Exalt build
@@ -83,7 +83,9 @@ src/
 │   └── symbols/         BeebyteName.h — obfuscated ↔ readable class/field alias map
 │
 ├── gui/                 ImGui rendering
-│   └── tabs/            One folder or pair per tab (WorldTAB, CameraTAB, PlayerTAB, CombatTab, VisualsTAB, TestTAB)
+│   ├── Theme.{h,cpp}    Palette/fonts, menu-layout.ini path, theme editor tab
+│   └── tabs/            One folder or pair per tab (PluginsTAB, ScriptsTAB,
+│                        WorldTAB, CameraTAB, PlayerTAB, CombatTab, VisualsTAB, TestTAB)
 │
 └── platform/            OS / renderer glue
     ├── dx11/            Dx11 helpers (Dx11.cpp/.h)
@@ -139,29 +141,31 @@ frame:
 - A `HANDLE` semaphore (`hRenderSemaphore`) serialises render calls against
   shutdown so we never render after teardown starts.
 
-Menu layout (two ImGui windows plus a persistent overlay):
-
-- `##MenuBar` — horizontal tab strip.
-- `##MenuContent` — floating content panel underneath.
-- Persistent bottom-right "Unload DLL" overlay.
+Menu layout: a single resizable `RealmEngine##Menu` window holding the tab
+strip and a `##MenuContent` child, plus a persistent bottom-right
+"Unload DLL" overlay. Theme (fonts, palette, ini path) is applied from
+`gui/Theme.{h,cpp}` on first frame.
 
 Tab order (single source of truth is the `tabs[]` array in
 `DirectX.cpp::dPresent`):
 
 | Index | Tab | Source |
 |---|---|---|
-| 0 | World | `gui/tabs/WorldTAB.{h,cpp}` |
-| 1 | Camera | `gui/tabs/CameraTAB.{h,cpp}` |
-| 2 | Player | `gui/tabs/PlayerTAB.{h,cpp}` |
-| 3 | Combat | `gui/tabs/CombatTab/CombatTAB.{h,cpp}` |
-| 4 | Visuals | `gui/tabs/VisualsTAB.{h,cpp}` |
-| 5 | Test | `gui/tabs/TestTAB.{h,cpp}` — diagnostics, IL2CPP explorer, offset health |
+| 0 | Plugins | `gui/tabs/PluginsTAB.{h,cpp}` |
+| 1 | Scripts | `gui/tabs/ScriptsTAB.{h,cpp}` — visual script list + node editor |
+| 2 | Combat | `gui/tabs/CombatTab/CombatTAB.{h,cpp}` |
+| 3 | Player | `gui/tabs/PlayerTAB.{h,cpp}` |
+| 4 | Camera | `gui/tabs/CameraTAB.{h,cpp}` |
+| 5 | Visuals | `gui/tabs/VisualsTAB.{h,cpp}` |
+| 6 | World | `gui/tabs/WorldTAB.{h,cpp}` |
+| 7 | Test | `gui/tabs/TestTAB.{h,cpp}` — diagnostics, IL2CPP explorer, offset health |
+| 8 | UI | `gui/Theme.cpp::DrawEditor` — theme editor |
 
 Tabs that need per-frame work (auto-aim, dodge, projectile tracking, …)
 implement `::Tick(bool menuOpen)` and are called from `dPresent` regardless
 of whether the menu is visible.
 
-Menu toggle: `VK_TAB` by default. All keybinds live in
+Menu toggle: `VK_INSERT` by default (`settings.h`). All keybinds live in
 `core/config/keybinds.h` (`KeyBinds::Config` struct).
 
 ## IL2CPP interop

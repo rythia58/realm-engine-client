@@ -160,6 +160,88 @@ export class GameHooker {
     }
   }
 
+  /** All detected Exalt installs, primary first, deduped. */
+  private allInstallDirs(): string[] {
+    const dirs: string[] = [];
+    const primary = this.gamePath ?? this.resolveGamePath();
+    if (primary) dirs.push(primary);
+    for (const dir of ExaltFinder.findAll()) {
+      if (dir && !dirs.includes(dir)) dirs.push(dir);
+    }
+    return dirs;
+  }
+
+  /**
+   * Strip the hook DLLs (winhttp.dll forwarder + version.dll cheats) from every
+   * detected install so the game launches vanilla. Restores any backed-up
+   * original winhttp.dll. Fails per-file if the game is running (DLLs loaded).
+   */
+  removeHooksEverywhere(): { cleaned: string[]; errors: string[] } {
+    const cleaned: string[] = [];
+    const errors: string[] = [];
+    for (const dir of this.allInstallDirs()) {
+      let touched = false;
+      for (const dll of ['version.dll', DLL_NAME]) {
+        const target = join(dir, dll);
+        if (!existsSync(target)) continue;
+        try {
+          unlinkSync(target);
+          touched = true;
+          Logger.log('GameHooker', `Removed ${dll} from ${dir}`);
+        } catch (err) {
+          errors.push(`${target}: ${(err as Error).message}`);
+        }
+      }
+      const backup = join(dir, BACKUP_NAME);
+      if (existsSync(backup)) {
+        try {
+          renameSync(backup, join(dir, DLL_NAME));
+          Logger.log('GameHooker', `Restored original ${DLL_NAME} in ${dir}`);
+        } catch (err) {
+          errors.push(`${backup}: ${(err as Error).message}`);
+        }
+      }
+      if (touched) cleaned.push(dir);
+    }
+    if (errors.length === 0) this.installed = false;
+    return { cleaned, errors };
+  }
+
+  /** Re-deploy both hook DLLs into every detected install from assets. */
+  async reinstallHooksEverywhere(): Promise<{ ok: boolean; errors: string[] }> {
+    const errors: string[] = [];
+    const winhttpOk = await this.install();
+    if (!winhttpOk) errors.push('winhttp.dll install failed (see server logs)');
+    const versionSrc = join(this.assetsDir, 'version.dll');
+    if (!existsSync(versionSrc)) {
+      errors.push('assets/version.dll not found — rebuild the internal DLL or restart the dashboard.');
+      return { ok: false, errors };
+    }
+    const winhttpSrc = join(this.assetsDir, DLL_NAME);
+    for (const dir of this.allInstallDirs()) {
+      try {
+        copyFileSync(versionSrc, join(dir, 'version.dll'));
+        if (dir !== this.gamePath && existsSync(winhttpSrc)) {
+          // install() backs up an existing winhttp.dll before overwriting; this
+          // loop did not, so removeHooksEverywhere had no backup to restore and
+          // a real system DLL was lost.
+          const target = join(dir, DLL_NAME);
+          const backup = join(dir, BACKUP_NAME);
+          if (existsSync(target) && !existsSync(backup)
+              && fileSha256(target) !== fileSha256(winhttpSrc)) {
+            renameSync(target, backup);
+            Logger.log('GameHooker', `Backed up existing ${DLL_NAME} in ${dir}`);
+          }
+          copyFileSync(winhttpSrc, target);
+        }
+        Logger.log('GameHooker', `Re-deployed hook DLLs to ${dir}`);
+      } catch (err) {
+        errors.push(`${dir}: ${(err as Error).message}`);
+      }
+    }
+    return { ok: errors.length === 0, errors };
+  }
+
   get isInstalled(): boolean {
     return this.installed;
   }

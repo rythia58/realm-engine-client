@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import type { VisualScriptGraph, VisualScriptInfo } from './VisualScriptTypes.js';
@@ -31,11 +31,19 @@ export class VisualScriptManager {
   }
 
   private notify(): void {
-    try { this.stateNotify?.(); } catch { /* ignore */ }
+    try { this.stateNotify?.(); } catch (err) { Logger.warn('VisualScripts', `state notify failed: ${(err as Error).message}`); }
   }
 
   private ensureDir(): void {
     if (!existsSync(this.dir)) mkdirSync(this.dir, { recursive: true });
+  }
+
+  /** Temp-then-rename: an interrupted write used to leave unloadable JSON. */
+  private writeGraph(sid: string, graph: VisualScriptGraph): void {
+    const target = join(this.dir, sid + '.json');
+    const tmp = target + '.tmp';
+    writeFileSync(tmp, JSON.stringify(graph, null, 2), 'utf8');
+    renameSync(tmp, target);
   }
 
   private safeId(id: string): string {
@@ -43,6 +51,7 @@ export class VisualScriptManager {
   }
 
   loadAll(): void {
+    this.stopAll();
     this.ensureDir();
     this.graphs.clear();
     for (const file of readdirSync(this.dir)) {
@@ -50,7 +59,12 @@ export class VisualScriptManager {
       try {
         const graph = JSON.parse(readFileSync(join(this.dir, file), 'utf8')) as VisualScriptGraph;
         if (!Array.isArray(graph.nodes) || !Array.isArray(graph.links)) continue;
-        this.graphs.set(file.slice(0, -5), graph);
+        const id = this.safeId(file.slice(0, -5));
+        if (!id || id !== file.slice(0, -5)) {
+          Logger.warn('VisualScripts', `Skipping ${file}: name is not a usable script id`);
+          continue;
+        }
+        this.graphs.set(id, graph);
       } catch (err) {
         Logger.warn('VisualScripts', `Failed to load ${file}: ${(err as Error).message}`);
       }
@@ -70,8 +84,8 @@ export class VisualScriptManager {
         enabled: g.enabled === true,
         idleFailSafeSec: Number(g.idleFailSafeSec) || 0,
         nodeCount: g.nodes.length,
-        status: run ? (run.error ? 'error' : 'running') : 'idle',
-        error: run?.error,
+        status: run ? ((run.error ?? run.interpreter.lastError) ? 'error' : 'running') : 'idle',
+        error: run?.error ?? run?.interpreter.lastError ?? undefined,
         activeNodeId: run?.interpreter.activeNodeId ?? undefined,
         hotkey: hotkeyNode ? String(hotkeyNode.params.key).trim() : undefined,
       };
@@ -90,7 +104,13 @@ export class VisualScriptManager {
     graph.name = String(graph.name || sid);
     graph.idleFailSafeSec = Number(graph.idleFailSafeSec) || 0;
     this.ensureDir();
-    writeFileSync(join(this.dir, sid + '.json'), JSON.stringify(graph, null, 2), 'utf8');
+    try {
+      this.writeGraph(sid, graph);
+    } catch (err) {
+      const message = `Failed to save ${sid}: ${(err as Error).message}`;
+      Logger.warn('VisualScripts', message);
+      return { ok: false, errors: [message] };
+    }
     const wasRunning = this.running.has(sid);
     if (wasRunning) this.stop(sid);
     this.graphs.set(sid, graph);
@@ -120,7 +140,12 @@ export class VisualScriptManager {
     if (!graph) return false;
     graph.enabled = enabled;
     this.ensureDir();
-    writeFileSync(join(this.dir, sid + '.json'), JSON.stringify(graph, null, 2), 'utf8');
+    try {
+      this.writeGraph(sid, graph);
+    } catch (err) {
+      Logger.warn('VisualScripts', `Failed to persist ${sid}: ${(err as Error).message}`);
+      return false;
+    }
     if (enabled) this.start(sid);
     else this.stop(sid);
     this.notify();
@@ -180,7 +205,7 @@ export class VisualScriptManager {
     const entry = this.running.get(sid);
     if (!entry) return;
     if (entry.timer) clearTimeout(entry.timer);
-    try { entry.interpreter.onStop(); } catch { /* ignore */ }
+    try { entry.interpreter.onStop(); } catch (err) { Logger.warn('VisualScripts', `${sid}: onStop failed - ${(err as Error).message}`); }
     this.running.delete(sid);
     Logger.log('VisualScripts', `${sid}: stopped`);
   }

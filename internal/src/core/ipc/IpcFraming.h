@@ -7,8 +7,12 @@
 
 #pragma once
 #include <Windows.h>
+#include <cstddef>
 
 namespace IpcFraming {
+
+// Matches the bridge's PIPE_BUFFER_SIZE.
+constexpr size_t kMaxMessageBytes = 65536;
 
 bool WriteMessage(HANDLE hPipe, const char* json, int len);
 int ReadMessage(HANDLE hPipe, char* buf, int bufSize);

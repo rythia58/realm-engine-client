@@ -90,14 +90,37 @@ static bool JsonEscapeInto(char* out, int outSize, const char* in)
     return true;
 }
 
+// Visual-script payloads are the only ones that overflow this.
+static constexpr int kEscStackBytes = 512;
+
 int BuildHotkeyEvent(char* buf, int bufSize, const char* pluginId, const char* action, bool value, uint64_t seq, const char* mac)
 {
-    const int escSize = bufSize;
-    char* esc = (char*)malloc((size_t)escSize);
-    if (!esc) return 0;
-    if (!JsonEscapeInto(esc, escSize, action)) { free(esc); return 0; }
-    const int n = snprintf(buf, bufSize, "{\"type\":\"hotkeyEvent\",\"pluginId\":\"%s\",\"action\":\"%s\",\"value\":%s,\"seq\":\"%llu\",\"mac\":\"%s\"}", pluginId, esc, value ? "true" : "false", static_cast<unsigned long long>(seq), mac);
-    free(esc);
+    if (!buf || bufSize <= 0 || !pluginId || !action || !mac) return -1;
+
+    char idStack[256];
+    char escStack[kEscStackBytes];
+    char* idEsc = idStack;
+    char* actEsc = escStack;
+    char* idHeap = nullptr;
+    char* actHeap = nullptr;
+
+    if (!JsonEscapeInto(idStack, (int)sizeof(idStack), pluginId)) {
+        idHeap = (char*)malloc((size_t)bufSize);
+        if (!idHeap) return -1;
+        if (!JsonEscapeInto(idHeap, bufSize, pluginId)) { free(idHeap); return -1; }
+        idEsc = idHeap;
+    }
+    if (!JsonEscapeInto(escStack, kEscStackBytes, action)) {
+        actHeap = (char*)malloc((size_t)bufSize);
+        if (!actHeap) { free(idHeap); return -1; }
+        if (!JsonEscapeInto(actHeap, bufSize, action)) { free(idHeap); free(actHeap); return -1; }
+        actEsc = actHeap;
+    }
+
+    const int n = snprintf(buf, bufSize, "{\"type\":\"hotkeyEvent\",\"pluginId\":\"%s\",\"action\":\"%s\",\"value\":%s,\"seq\":\"%llu\",\"mac\":\"%s\"}", idEsc, actEsc, value ? "true" : "false", static_cast<unsigned long long>(seq), mac);
+    free(idHeap);
+    free(actHeap);
+    if (n < 0 || n >= bufSize) return -1;
     return n;
 }
 

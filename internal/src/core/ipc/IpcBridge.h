@@ -29,10 +29,14 @@ void IpcBridge_EmitPluginSetEnabled(const char* pluginId, bool enabled);
 // Visual scripts: enable/disable, and editor requests (action = vsGet/vsSave/vsDelete).
 void IpcBridge_EmitVisualScriptSetEnabled(const char* scriptId, bool enabled);
 void IpcBridge_EmitVisualScriptEvent(const char* action, const char* payload);
+uint32_t IpcBridge_GetDroppedEventCount();
 
 // ── AutoNexus threat list ────────────────────────────────────────────────
 struct IpcThreat {
     int32_t attackerObjId;
+    // ENEMYSHOOT keys bullets by ownerId, which is not always attackerObjId;
+    // both are published so the client can match either.
+    int32_t ownerObjId;
     int32_t bulletId;
     float   tHitMs;                 // ms from the scan instant to impact
     int32_t fallbackDamage;         // raw projectile max damage
@@ -92,12 +96,6 @@ float       IpcBridge_GetAutoDodgeHitboxPadding();
 void        IpcBridge_SetAutoDodgeHitboxPadding(float paddingTiles);
 bool        IpcBridge_GetAutoDodgeWallAvoid();
 void        IpcBridge_SetAutoDodgeWallAvoid(bool enabled);
-bool        IpcBridge_GetAutoAbilityEnabled();
-void        IpcBridge_SetAutoAbilityEnabled(bool enabled);
-float       IpcBridge_GetAutoAbilityMpPct();
-void        IpcBridge_SetAutoAbilityMpPct(float pctZeroTo100);
-int         IpcBridge_GetAutoAbilityItemType();
-void        IpcBridge_SetAutoAbilityItemType(int itemType);
 float       IpcBridge_GetWalkTargetX();
 float       IpcBridge_GetWalkTargetY();
 bool        IpcBridge_GetWalkTargetActive();

@@ -15,7 +15,6 @@
 #include <thread>
 #include <Il2CppResolver.h>
 #include "AutoAim.h"
-#include "AutoAbility.h"
 #include "RuntimeOffsets.h"
 #include "BootGate.h"
 #include "DiagBridge.h"
@@ -202,7 +201,6 @@ HRESULT __stdcall dPresent(IDXGISwapChain* __this, UINT SyncInterval, UINT Flags
 	SpeedHack::LogTimingProbe("pre_apply_timescale");
 	// #endregion
 	AutoAim::Tick();         // entity dict walk — uses GameState::GetWorldMgr()
-	AutoAbility::Tick();     // class-aware ability use — reads AutoAim target
 	BagLooter::Tick();       // throttled bag scan + ext-goal routing
 	BootGate::Tick();        // boot gating loop (runs EnsureAll + audit)
 	DiagBridge::Tick();      // mirror live state to %LOCALAPPDATA%\RealmEngine\diag.json

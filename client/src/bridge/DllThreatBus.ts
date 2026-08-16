@@ -11,6 +11,8 @@ export interface DllGround {
 
 export interface DllThreat {
   attackerObjId: number;
+  /** ENEMYSHOOT keys bullets by ownerId, which is not always attackerObjId. */
+  ownerObjId: number;
   bulletId: number;
   tHitMs: number;
   fallbackDamage: number;
@@ -58,9 +60,7 @@ export function getDllThreatsAgeMs(): number | null {
   return slot.at === 0 ? null : Date.now() - slot.at;
 }
 
-/**
- * `attacker:bullet:tHitMs:damage:pierce`
- */
+/** `attacker:bullet:tHitMs:damage:pierce:owner` */
 export function parseThreatPayload(payload: string): { threats: DllThreat[]; ground: DllGround } {
   const out: DllThreat[] = [];
   const ground: DllGround = { rawDamage: 0, tHitMs: -1, events: [] };
@@ -70,15 +70,19 @@ export function parseThreatPayload(payload: string): { threats: DllThreat[]; gro
   let entriesPart = payload;
   const semi = payload.indexOf(';');
   if (semi >= 0) {
-    for (const ev of payload.slice(0, semi).split('|')) {
-      const g = ev.split(':');
+    // Segment 0 is the summary and repeats events[0]; counting it as an event
+    // double-charged the first ground tick.
+    const segments = payload.slice(0, semi).split('|');
+    for (let i = 0; i < segments.length; i++) {
+      const g = segments[i].split(':');
       if (g.length !== 2) continue;
       const dmg = Number(g[0]);
       const t = Number(g[1]);
       if (!Number.isFinite(dmg) || !Number.isFinite(t)) continue;
-      if (ground.events.length === 0) {
+      if (i === 0) {
         ground.rawDamage = dmg;
         ground.tHitMs = t;
+        continue;
       }
       if (dmg > 0) ground.events.push({ rawDamage: dmg, tHitMs: t });
     }
@@ -88,15 +92,18 @@ export function parseThreatPayload(payload: string): { threats: DllThreat[]; gro
   if (!entriesPart) return { threats: out, ground };
   for (const entry of entriesPart.split(',')) {
     const parts = entry.split(':');
-    if (parts.length !== 5) continue;
+    // Older DLL builds omit the trailing owner id.
+    if (parts.length !== 5 && parts.length !== 6) continue;
     const attackerObjId = Number(parts[0]);
     const bulletId = Number(parts[1]);
     const tHitMs = Number(parts[2]);
     const fallbackDamage = Number(parts[3]);
     if (!Number.isFinite(attackerObjId) || !Number.isFinite(bulletId)
       || !Number.isFinite(tHitMs) || !Number.isFinite(fallbackDamage)) continue;
+    const ownerRaw = parts.length === 6 ? Number(parts[5]) : NaN;
     out.push({
       attackerObjId,
+      ownerObjId: Number.isFinite(ownerRaw) ? ownerRaw : attackerObjId,
       bulletId,
       tHitMs,
       fallbackDamage,

@@ -54,6 +54,7 @@ export interface ExecArgs {
 interface SeqFrame { nodeId: string; outIndex: number; }
 
 const MAX_STEPS_PER_TICK = 200;
+const MAX_STEPS_PER_SECOND = 5000;
 const IDLE_SLEEP_MS = 250;
 const MOVE_POLL_MS = 100;
 
@@ -63,6 +64,7 @@ export class GraphInterpreter {
   private nodesById = new Map<string, VisualScriptNode>();
   private flowTargets = new Map<string, string>();
   private dataSources = new Map<string, { from: string; fromPort: string }>();
+  private seqOuts = new Map<string, string[]>();
 
   private current: string | null = null;
   private seqStack: SeqFrame[] = [];
@@ -74,17 +76,27 @@ export class GraphInterpreter {
   private dataMemo = new Map<string, Record<string, unknown>>();
   private lastProgressAt = 0;
   private stopped = false;
+  private stepWindowStart = 0;
+  private stepsInWindow = 0;
 
   activeNodeId: string | null = null;
+  lastError: string | null = null;
 
   constructor(graph: VisualScriptGraph, ctx: NodeContext) {
     this.graph = graph;
     this.ctx = ctx;
     for (const n of graph.nodes) this.nodesById.set(n.id, n);
     for (const l of graph.links) {
-      if (l.kind === 'flow') this.flowTargets.set(`${l.from}:${l.fromPort}`, l.to);
-      else this.dataSources.set(`${l.to}:${l.toPort}`, { from: l.from, fromPort: l.fromPort });
+      if (l.kind === 'flow') {
+        this.flowTargets.set(`${l.from}:${l.fromPort}`, l.to);
+        const outs = this.seqOuts.get(l.from) ?? [];
+        if (!outs.includes(l.fromPort)) outs.push(l.fromPort);
+        this.seqOuts.set(l.from, outs);
+      } else {
+        this.dataSources.set(`${l.to}:${l.toPort}`, { from: l.from, fromPort: l.fromPort });
+      }
     }
+    for (const outs of this.seqOuts.values()) outs.sort();
   }
 
   onStart(): void {
@@ -97,7 +109,8 @@ export class GraphInterpreter {
     this.stopped = true;
     this.current = null;
     this.pendingMove = null;
-    try { this.ctx.stopMoving(); } catch { /* ignore */ }
+    // A failure here leaves the character walking after the script stops.
+    try { this.ctx.stopMoving(); } catch (err) { this.ctx.log(`stopMoving failed on stop: ${(err as Error).message}`, 'warn'); }
   }
 
   postEvent(ev: FlowEvent): void {
@@ -153,6 +166,10 @@ export class GraphInterpreter {
     if (this.stopped) return -1;
     const now = Date.now();
 
+    // A graph looping A->B->A refreshes lastProgressAt forever, so the idle
+    // fail-safe never sees it. Cap sustained execution rate instead.
+    if (now - this.stepWindowStart >= 1000) { this.stepWindowStart = now; this.stepsInWindow = 0; }
+
     if (this.waitUntil > now) return Math.min(this.waitUntil - now, 1000);
 
     if (this.pendingMove) {
@@ -177,8 +194,6 @@ export class GraphInterpreter {
       this.startFromEntry(ev.type === 'hotkey' ? 'Hotkey' : ev.type === 'mapChange' ? 'MapChange' : 'ReceivedMessage', ev);
     }
 
-    this.dataMemo.clear();
-
     for (let step = 0; step < MAX_STEPS_PER_TICK; step++) {
       if (this.current === null) {
         const frame = this.seqStack[this.seqStack.length - 1];
@@ -194,8 +209,16 @@ export class GraphInterpreter {
         continue;
       }
 
+      // Cleared per step, not per tick: a graph that moves and then checks
+      // position was reading its own pre-move snapshot.
+      this.dataMemo.clear();
+
       const node = this.nodesById.get(this.current);
       if (!node) { this.current = null; continue; }
+      if (++this.stepsInWindow > MAX_STEPS_PER_SECOND) {
+        this.ctx.log(`Runaway graph: over ${MAX_STEPS_PER_SECOND} node executions in 1s - stopping`, 'error');
+        throw new Error('runaway graph (execution rate ceiling hit)');
+      }
       this.activeNodeId = node.id;
       this.lastProgressAt = now;
 
@@ -203,7 +226,9 @@ export class GraphInterpreter {
       try {
         result = this.execFlow(node);
       } catch (err) {
-        this.ctx.log(`Node ${node.type} (${node.id}) failed: ${(err as Error).message}`, 'error');
+        const message = `Node ${node.type} (${node.id}) failed: ${(err as Error).message}`;
+        this.ctx.log(message, 'error');
+        this.lastError = message;
         this.current = null;
         continue;
       }
@@ -236,11 +261,7 @@ export class GraphInterpreter {
   }
 
   private sequenceOuts(node: VisualScriptNode): string[] {
-    const outs: string[] = [];
-    for (const l of this.graph.links) {
-      if (l.kind === 'flow' && l.from === node.id && !outs.includes(l.fromPort)) outs.push(l.fromPort);
-    }
-    return outs.sort();
+    return this.seqOuts.get(node.id) ?? [];
   }
 
   private execFlow(node: VisualScriptNode): FlowResult {
@@ -258,7 +279,7 @@ export class GraphInterpreter {
         const v = node.params[key];
         if (v === undefined || v === null || v === '') return fallback;
         if (typeof fallback === 'number') { const n = Number(v); return (Number.isFinite(n) ? n : fallback) as T; }
-        if (typeof fallback === 'boolean') return (v === true || v === 'true' || v === 1) as unknown as T;
+        if (typeof fallback === 'boolean') return (v === true || v === 'true' || v === 1 || v === '1') as unknown as T;
         return v as T;
       },
       input: (port: string) => this.evalInput(node.id, port, 0),
@@ -295,8 +316,8 @@ export class GraphInterpreter {
     return outputs;
   }
 
-  describeState(): { activeNodeId: string | null; idle: boolean } {
-    return { activeNodeId: this.activeNodeId, idle: this.isIdle() };
+  describeState(): { activeNodeId: string | null; idle: boolean; error: string | null } {
+    return { activeNodeId: this.activeNodeId, idle: this.isIdle(), error: this.lastError };
   }
 
   static validate(graph: VisualScriptGraph): string[] {

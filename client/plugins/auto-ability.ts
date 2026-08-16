@@ -15,12 +15,17 @@ const MANUAL_PAUSE_MS = 3000;
 // (a despawned/out-of-view enemy that auto-aim already ignores).
 const TARGET_MAX_STALE_MS = 500;
 
-// Aimed abilities → fire at nearest enemy.
+// Aimed abilities -> fire at nearest enemy.
+const TARGET_CLASS_NAMES = [
+  'Archer', 'Wizard', 'Samurai', 'Knight', 'Assassin', 'Necromancer',
+  'Huntress', 'Mystic', 'Sorcerer', 'Ninja', 'Summoner',
+] as const;
 const TARGET_CLASSES = new Set<number>([
   775, 782, 785, 798, 800, 801, 802, 803, 805, 806, 817,
 ]);
 // Self/area buffs → fire nonstop at own position. Rogue (768) is excluded:
 // its cloak is a utility stealth, not something to auto-cast.
+const SELF_CLASS_NAMES = ['Priest', 'Bard', 'Warrior', 'Paladin'] as const;
 const SELF_CLASSES = new Set<number>([784, 796, 797, 799]);
 // Trickster/Kensei omitted entirely: their abilities move the player.
 
@@ -34,13 +39,37 @@ export function register(ctx: PluginContext) {
   ctx.name = 'Auto Ability';
   ctx.category = 'combat';
 
+  // The sets above are raw class ids; if game data shifts them a silent
+  // mis-classification means an aimed class self-casts (or worse).
+  function auditClassTable(): void {
+    const gd = ctx.gameData;
+    if (!gd) return;
+    const byName = new Map<string, number>();
+    for (const def of gd.getAllObjects()) {
+      if (def.objectClass !== 'Player') continue;
+      byName.set(def.id.toLowerCase(), def.type);
+    }
+    if (byName.size === 0) return;
+
+    const check = (names: readonly string[], expected: Set<number>, label: string) => {
+      for (const name of names) {
+        const type = byName.get(name.toLowerCase());
+        if (type === undefined) { ctx.log(`Class table: no "${name}" in game data`); continue; }
+        if (!expected.has(type)) ctx.log(`Class table drift: ${name} is type ${type}, missing from ${label}`);
+      }
+    };
+    check(TARGET_CLASS_NAMES, TARGET_CLASSES, 'TARGET_CLASSES');
+    check(SELF_CLASS_NAMES, SELF_CLASSES, 'SELF_CLASSES');
+  }
+  auditClassTable();
+
   let mpFloorPct = 85;
   let safeZonePause = true;
   let abilityRange = 12;
 
   const safeZone = new WeakMap<ClientConnection, boolean>();
   const nextAllowedAt = new WeakMap<ClientConnection, number>();
-  let selfFiring = false;
+  const selfFiring = new WeakSet<ClientConnection>();
 
   ctx.registerSetting('mpFloorPct', {
     label: 'Min MP % (0 = nonstop)',
@@ -57,10 +86,15 @@ export function register(ctx: PluginContext) {
     type: 'range', value: 12, min: 3, max: 30, step: 1,
   }, (v: number) => { abilityRange = Math.max(3, Math.min(30, Math.trunc(Number(v) || 12))); });
 
+  const movementAbilityCache = new Map<number, boolean>();
   function isMovementAbility(itemType: number): boolean {
     if (itemType <= 0) return false;
+    const cached = movementAbilityCache.get(itemType);
+    if (cached !== undefined) return cached;
     const xml = ctx.gameData?.getRawObjectXml(itemType);
-    return xml !== undefined && MOVEMENT_ACTIVATE_RE.test(xml);
+    const result = xml !== undefined && MOVEMENT_ACTIVATE_RE.test(xml);
+    movementAbilityCache.set(itemType, result);
+    return result;
   }
 
   function sendUseAbility(client: ClientConnection, usePos: { x: number; y: number }, itemType: number): void {
@@ -73,8 +107,8 @@ export function register(ctx: PluginContext) {
       unknownInt: 0,
     };
     pkt.modified = true;
-    selfFiring = true;
-    try { client.sendToServer(pkt); } finally { selfFiring = false; }
+    selfFiring.add(client);
+    try { client.sendToServer(pkt); } finally { selfFiring.delete(client); }
   }
 
   ctx.hookPacket('MAPINFO', (client, packet) => {
@@ -87,7 +121,8 @@ export function register(ctx: PluginContext) {
 
   // Manual ability press → back off so we don't fight the player's cooldown.
   ctx.hookPacket('USEITEM', (client, packet) => {
-    if (selfFiring) return;
+    if (selfFiring.has(client)) return;
+    if (!packet.isDefined) return;
     if (packet.data?.slotObject?.slotId === ABILITY_SLOT) {
       nextAllowedAt.set(client, Date.now() + MANUAL_PAUSE_MS);
     }

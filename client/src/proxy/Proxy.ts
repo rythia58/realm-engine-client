@@ -43,6 +43,9 @@ export class Proxy extends EventEmitter {
     public readonly packetFactory: PacketFactory,
   ) {
     super();
+    // One clientConnected/clientDisconnected listener per plugin, which is
+    // already past Node's default cap of 10.
+    this.setMaxListeners(0);
   }
 
   /** Start the TCP listener. */

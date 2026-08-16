@@ -118,9 +118,6 @@ namespace {
             FH_FLOAT("autoDodgeHitboxPadding", IpcBridge_SetAutoDodgeHitboxPadding),
             FH_BOOL("autoDodgeWallAvoid", IpcBridge_SetAutoDodgeWallAvoid),
             FH_FLOAT("speedHackMult", SpeedHack::SetMultiplier),
-            FH_BOOL("autoAbilityEnabled", IpcBridge_SetAutoAbilityEnabled),
-            FH_FLOAT("autoAbilityMpPct", IpcBridge_SetAutoAbilityMpPct),
-            FH_INT("autoAbilityItemType", IpcBridge_SetAutoAbilityItemType),
             FH_INT("targetFrameRate", FpsSetter::SetTargetFps),
             FH_TEXT("showPluginFloatingText", FloatingTextService::QueuePluginText)
         };

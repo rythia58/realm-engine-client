@@ -27,14 +27,6 @@ static bool  g_nexusProjDmg  = true;
 static bool  g_nexusTileDmg  = true;
 static bool  g_debugDraw     = false;
 
-// EquipmentManager.UseInventoryItemByHotkey — resolved lazily on first
-// use so the module costs nothing at startup. Cached forever once
-// resolved (function pointer is stable for the process lifetime).
-using UseInvByHotkeyFn = void(__fastcall*)(void* eqMgr, int32_t hotkey, void* methodInfo);
-static UseInvByHotkeyFn s_fnUseInvByHotkey = nullptr;
-static uint32_t          s_eqMgrFieldOff   = 0;   // FKALGHJIADI.AJJJBDBNBLM offset
-static bool              s_autoPotResolved = false;
-
 static ULONGLONG s_lastAutoNexusTick = 0;
 
 static constexpr ULONGLONG kAutoNexusPollMs = 16ULL;
@@ -172,6 +164,7 @@ static void ObserveVelocity(float x, float y, float& outVx, float& outVy)
 // ── Threat list ──────────────────────────────────────────────────────────
 struct Threat {
     int32_t attackerObjId = 0;
+    int32_t ownerObjId    = 0;
     int32_t bulletId      = 0;
     float   tHitMs        = 0.f;
     int32_t rawDamage     = 0;
@@ -281,9 +274,30 @@ static bool OverlapsAt(const WorldProjectile& proj, float tAbsMs,
 }
 
 // ── Already-consumed bullets ─────────────────────────────────────────────
-// Simmilar thing, this isn't great but it's the best I have for now.
-// The goal is to just remove projectiles that have hit
-// So the autonexus doesn't freak out and think it's going to hit us again.
+// The padded test also matches near misses, so hits are recorded locally --
+// retiring them from ProjectileTracking blinded dodge and ghost-hit too.
+namespace {
+constexpr int kConsumedCap = 256;
+struct ConsumedKey { int32_t attacker = 0; int32_t bullet = 0; ULONGLONG at = 0; };
+ConsumedKey s_consumed[kConsumedCap];
+int s_consumedNext = 0;
+constexpr ULONGLONG kConsumedTtlMs = 3000;
+
+bool IsConsumed(int32_t attacker, int32_t bullet, ULONGLONG nowMs)
+{
+    for (const auto& c : s_consumed)
+        if (c.attacker == attacker && c.bullet == bullet && c.at != 0 && nowMs - c.at < kConsumedTtlMs)
+            return true;
+    return false;
+}
+
+void MarkConsumed(int32_t attacker, int32_t bullet, ULONGLONG nowMs)
+{
+    s_consumed[s_consumedNext] = ConsumedKey{ attacker, bullet, nowMs };
+    s_consumedNext = (s_consumedNext + 1) % kConsumedCap;
+}
+} // namespace
+
 static bool CrossedPlayerInPast(const WorldProjectile& proj, float elapsedNow,
                                 float windowMs, float px0, float py0,
                                 float px1, float py1)
@@ -460,6 +474,7 @@ static void PublishThreats(const std::vector<Threat>& threats, const GroundThrea
     for (const auto& t : threats) {
         if (n >= kIpcMaxThreats) break;
         out[n].attackerObjId        = t.attackerObjId;
+        out[n].ownerObjId           = t.ownerObjId;
         out[n].bulletId             = t.bulletId;
         out[n].tHitMs               = t.tHitMs;
         out[n].fallbackDamage       = t.rawDamage;
@@ -490,13 +505,19 @@ static void RunAutoNexus()
     RuntimeOffsets::TryReadMapObjectConditions(lp, &cW0, &cW1);
     const uint64_t cFull = RuntimeOffsets::GetFullConditions(cW0, cW1);
 
-    std::vector<Threat> threats;
+    static std::vector<Threat> threats;
+    threats.clear();
 
     PlayerMotion pm = ReadPlayerMotion(lp, cFull);
     const float horizon = std::max(0.f, std::min(kMaxHorizonMs, g_predTimeMs));
 
     const float fieldVx = pm.vx, fieldVy = pm.vy;
-    ObserveVelocity(pm.x, pm.y, pm.vx, pm.vy);
+    float obsVx = 0.f, obsVy = 0.f;
+    ObserveVelocity(pm.x, pm.y, obsVx, obsVy);
+    // The smoothed observation lags direction changes, which is exactly when a
+    // nexus decision matters. Prefer the game's own move vector when it has one.
+    if (fieldVx != 0.f || fieldVy != 0.f) { pm.vx = fieldVx; pm.vy = fieldVy; }
+    else                                  { pm.vx = obsVx;   pm.vy = obsVy;   }
 
     g_gvNowX = pm.x;  g_gvNowY = pm.y;
     g_gvVx   = pm.vx; g_gvVy   = pm.vy;
@@ -512,7 +533,8 @@ static void RunAutoNexus()
     g_vizCount = 0;
 
     if (g_nexusProjDmg) {
-        std::vector<WorldProjectile> projs;
+        static std::vector<WorldProjectile> projs;
+        projs.clear();
         ProjectileTracking::CopyActiveForDraw(projs);
 
         const ULONGLONG nowMs   = GetTickCount64();
@@ -540,11 +562,16 @@ static void RunAutoNexus()
             if (alreadyElapsed < 0.f || alreadyElapsed > proj.lifetime + 50.f)
                 continue;
 
+            if (IsConsumed(proj.attackerObjId, proj.bulletId, nowMs)) continue;
             if (retroMs > 0.f &&
                 CrossedPlayerInPast(proj, alreadyElapsed, retroMs, prevPx, prevPy, pm.x, pm.y)) {
-                ProjectileTracking::RetireProjectile(proj);
+                MarkConsumed(proj.attackerObjId, proj.bulletId, nowMs);
                 continue;
             }
+
+            // F17: the overlay filtered these out but the scan did not, so the
+            // two disagreed about which bullets existed.
+            if (!InstanceLooksAlive(proj, alreadyElapsed)) continue;
 
             const float tHit = FindHitMsUntil(proj, alreadyElapsed, pm, horizon);
             if (g_debugDraw) CaptureVizPath(proj, alreadyElapsed, tHit >= 0.f);
@@ -552,6 +579,7 @@ static void RunAutoNexus()
 
             Threat th{};
             th.attackerObjId = proj.attackerObjId;
+            th.ownerObjId    = static_cast<int32_t>(proj.ownerObjId);
             th.bulletId      = proj.bulletId;
             th.tHitMs        = tHit;
             th.rawDamage     = proj.damage;
@@ -566,59 +594,6 @@ static void RunAutoNexus()
     const GroundThreat ground = PredictGroundDamage(lp, pm, horizon);
 
     PublishThreats(threats, ground);
-}
-
-// ── Item-use primitives ──────────────────────────────────────────────────
-// Resolve EquipmentManager.UseInventoryItemByHotkey + the EquipmentManager
-// pointer field on the player class. Idempotent — subsequent calls return
-// immediately when s_autoPotResolved is set.
-static void ResolveAutoPotOnce()
-{
-    if (s_autoPotResolved) return;
-    Resolver::Protection::safe_call([&]() {
-        Il2CppClass* em = Resolver::FindClass("DecaGames.RotMG.Managers.Equipment", "EquipmentManager");
-        if (!em) em = Resolver::FindClassLoose("PNBNDBIPENP");
-        if (em) {
-            const MethodInfo* mi = il2cpp_class_get_method_from_name(em, "UseInventoryItemByHotkey", 1);
-            if (mi && mi->methodPointer) {
-                s_fnUseInvByHotkey = reinterpret_cast<UseInvByHotkeyFn>(mi->methodPointer);
-            }
-        }
-        Il2CppClass* fk = Resolver::FindClassLoose("FKALGHJIADI");
-        if (fk) {
-            FieldInfo* eqf = il2cpp_class_get_field_from_name(fk, "AJJJBDBNBLM");
-            if (eqf) s_eqMgrFieldOff = static_cast<uint32_t>(il2cpp_field_get_offset(eqf));
-        }
-    });
-    if (s_fnUseInvByHotkey && s_eqMgrFieldOff) s_autoPotResolved = true;
-}
-
-static void* ReadEquipmentManagerPtr(void* localPlayer)
-{
-    if (!localPlayer || !s_eqMgrFieldOff) return nullptr;
-    void* eqMgr = nullptr;
-    __try {
-        eqMgr = *reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(localPlayer) + s_eqMgrFieldOff);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        return nullptr;
-    }
-    return eqMgr;
-}
-
-static void TryDrinkHotkey(int hotkey, ULONGLONG& lastTickMs, ULONGLONG cooldownMs)
-{
-    ResolveAutoPotOnce();
-    if (!s_fnUseInvByHotkey || !s_eqMgrFieldOff) return;
-    const ULONGLONG now = GetTickCount64();
-    if (now - lastTickMs < cooldownMs) return;
-    void* lp = LocalPlayer::GetPtr();
-    if (!lp) return;
-    void* eqMgr = ReadEquipmentManagerPtr(lp);
-    if (!eqMgr) return;
-    Resolver::Protection::safe_call([&]() {
-        s_fnUseInvByHotkey(eqMgr, hotkey, nullptr);
-    });
-    lastTickMs = now;
 }
 
 void Tick()
@@ -722,8 +697,8 @@ void RenderDebugPath(float camX, float camY, float angleRad, float zoom, float c
     }
 
     // ── AOE landing zones ────────────────────────────────────────────────
-    // This does not work. I wish it did. If anyone knows why, please help, I think
-    // the function name / offsets are wrong. 
+    // Partial: the ShowEffect hook symbol is stale, so telegraph-only AoEs are
+    // missing. See kShowEffectMethod in AoeTracking.cpp.
     {
         static ULONGLONG s_lastEnsureMs = 0;
         const ULONGLONG ensureNow = GetTickCount64();
@@ -812,8 +787,14 @@ void Render()
         if (g_debugDraw) {
             // The counters the corner HUD used to carry. An empty overlay and a
             // broken one look identical on screen; these tell them apart.
-            ImGui::TextDisabled("  paths %d   aoe %d   aoeHooks %d",
-                                g_vizCount, s_lastAoeDrawn, s_aoeHooks);
+            ImGui::TextDisabled("  paths %d   aoe %d", g_vizCount, s_lastAoeDrawn);
+            if (s_aoeHooks >= AoeTracking::kExpectedHooks) {
+                ImGui::TextDisabled("  aoe hooks %d/%d", s_aoeHooks, AoeTracking::kExpectedHooks);
+            } else {
+                ImGui::TextColored(ImVec4(1.f, 0.75f, 0.3f, 1.f),
+                    "  aoe hooks %d/%d - stale symbols, regenerate headers",
+                    s_aoeHooks, AoeTracking::kExpectedHooks);
+            }
         }
         ImGui::TextDisabled("Hitbox:    DodgeHit %.4f player half", DodgeHit::kPlayerHalf);
 

@@ -107,13 +107,6 @@ void    IpcBridge_SetAutoDodgeHitboxPadding(float p)          { FeatureState::Se
 bool    IpcBridge_GetAutoDodgeWallAvoid()                     { return FeatureState::GetAutoDodgeWallAvoid(); }
 void    IpcBridge_SetAutoDodgeWallAvoid(bool enabled)         { FeatureState::SetAutoDodgeWallAvoid(enabled); }
 
-bool    IpcBridge_GetAutoAbilityEnabled()                     { return FeatureState::GetAutoAbilityEnabled(); }
-void    IpcBridge_SetAutoAbilityEnabled(bool enabled)         { FeatureState::SetAutoAbilityEnabled(enabled); }
-float   IpcBridge_GetAutoAbilityMpPct()                       { return FeatureState::GetAutoAbilityMpPct(); }
-void    IpcBridge_SetAutoAbilityMpPct(float pct)              { FeatureState::SetAutoAbilityMpPct(pct); }
-int     IpcBridge_GetAutoAbilityItemType()                    { return FeatureState::GetAutoAbilityItemType(); }
-void    IpcBridge_SetAutoAbilityItemType(int itemType)        { FeatureState::SetAutoAbilityItemType(itemType); }
-
 float   IpcBridge_GetWalkTargetX()                            { return FeatureState::GetWalkTargetX(); }
 float   IpcBridge_GetWalkTargetY()                            { return FeatureState::GetWalkTargetY(); }
 bool    IpcBridge_GetWalkTargetActive()                       { return FeatureState::GetWalkTargetActive(); }
@@ -148,7 +141,11 @@ void IpcBridge_RequestShutdown() { s_shutdown = true; }
 struct PendingEvent { std::string pluginId; std::string action; bool value = true; };
 static std::mutex s_pendingEventsMutex;
 static std::vector<PendingEvent> s_pendingEvents;
-static constexpr size_t kPendingEventsCap = 64;
+// Headroom for a fully chunked visual-script graph plus ordinary hotkey traffic.
+static constexpr size_t kPendingEventsCap = 320;
+static std::atomic<uint32_t> s_droppedEvents{0};
+
+uint32_t IpcBridge_GetDroppedEventCount() { return s_droppedEvents.load(std::memory_order_relaxed); }
 
 static void QueueEvent(const char* pluginId, std::string action, bool value)
 {
@@ -158,7 +155,11 @@ static void QueueEvent(const char* pluginId, std::string action, bool value)
     ev.action = std::move(action);
     ev.value = value;
     std::lock_guard<std::mutex> lk(s_pendingEventsMutex);
-    if (s_pendingEvents.size() < kPendingEventsCap) s_pendingEvents.push_back(std::move(ev));
+    if (s_pendingEvents.size() < kPendingEventsCap) {
+        s_pendingEvents.push_back(std::move(ev));
+    } else {
+        s_droppedEvents.fetch_add(1, std::memory_order_relaxed);
+    }
 }
 
 void IpcBridge_EmitPredictedHit(int ownerObjId, int bulletId)
@@ -179,10 +180,26 @@ void IpcBridge_EmitVisualScriptSetEnabled(const char* scriptId, bool enabled)
     QueueEvent((std::string("vs.") + scriptId).c_str(), "setEnabled", enabled);
 }
 
+// A serialized graph can exceed the pipe frame, so oversized payloads ship as
+// "<action>Chunk:<index>|<total>|<data>" for the client to reassemble.
+static constexpr size_t kVsChunkBytes = 4000;
+
 void IpcBridge_EmitVisualScriptEvent(const char* action, const char* payload)
 {
     if (!action || !payload) return;
-    QueueEvent("visualScript", std::string(action) + ":" + payload, true);
+    const size_t len = strlen(payload);
+    if (len <= kVsChunkBytes) {
+        QueueEvent("visualScript", std::string(action) + ":" + payload, true);
+        return;
+    }
+    const int total = static_cast<int>((len + kVsChunkBytes - 1) / kVsChunkBytes);
+    for (int i = 0; i < total; ++i) {
+        const size_t off = static_cast<size_t>(i) * kVsChunkBytes;
+        const size_t n = (len - off < kVsChunkBytes) ? (len - off) : kVsChunkBytes;
+        char hdr[64];
+        std::snprintf(hdr, sizeof(hdr), "%sChunk:%d|%d|", action, i, total);
+        QueueEvent("visualScript", std::string(hdr) + std::string(payload + off, n), true);
+    }
 }
 
 static std::mutex s_threatsMutex;
@@ -203,7 +220,8 @@ void IpcBridge_PublishThreats(const IpcThreat* threats, int count, const IpcGrou
 }
 
 // "<groundDmg>:<groundTHitMs>;<entries>" where entries are
-// "attacker:bullet:tHitMs:dmg:pierce", comma separated. 
+// "attacker:bullet:tHitMs:dmg:pierce:owner", comma separated.
+
 static int BuildThreatPayload(char* out, int outSize)
 {
     IpcThreat local[kIpcMaxThreats];
@@ -244,19 +262,20 @@ static int BuildThreatPayload(char* out, int outSize)
     }
     for (int i = 0; i < n; ++i) {
         const int wrote = snprintf(out + used, static_cast<size_t>(outSize - used),
-                                   "%s%d:%d:%.1f:%d:%d",
+                                   "%s%d:%d:%.1f:%d:%d:%d",
                                    (i == 0) ? "" : ",",
                                    local[i].attackerObjId, local[i].bulletId,
                                    static_cast<double>(local[i].tHitMs),
                                    local[i].fallbackDamage,
-                                   local[i].fallbackArmorPiercing ? 1 : 0);
+                                   local[i].fallbackArmorPiercing ? 1 : 0,
+                                   local[i].ownerObjId);
         if (wrote <= 0 || wrote >= outSize - used) break;   // truncate cleanly
         used += wrote;
     }
     return used;
 }
 
-constexpr int kThreatEntryMax = 11 + 11 + 14 + 11 + 1 + 5;
+constexpr int kThreatEntryMax = 11 + 11 + 14 + 11 + 1 + 11 + 6;
 constexpr int kGroundSegMax   = (11 + 1 + 14) + kIpcMaxGroundEvents * (1 + 11 + 1 + 14) + 2;
 constexpr int kThreatPayloadMax = kIpcMaxThreats * kThreatEntryMax + kGroundSegMax + 1;
 
@@ -386,7 +405,9 @@ static bool DispatchTileCommand(const char* type, char* json, const char* seqStr
         return true;
     }
     if (strcmp(type, "tileUpdate") == 0) {
-        char tilesBuf[65000] = {};
+        // Static: 64 KB on a stack that already carries msgBuf + readBuf.
+        static char tilesBuf[65000];
+        tilesBuf[0] = '\0';
         if (!IpcJson::GetString(json, "tiles", tilesBuf, sizeof(tilesBuf))) return true;
         if (!IpcSession::VerifyClientSeqAndMac(&s_auth, seqStr, macHex, "tileUpdate", tilesBuf)) return true;
         IpcTileState::ApplyTileUpdate(tilesBuf);

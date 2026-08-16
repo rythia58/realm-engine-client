@@ -469,13 +469,15 @@ async function main() {
       visualScripts.postEvent({ type: 'chat', payload: { text: e.text ?? '', sender: e.sender ?? '' } });
     });
     let lastMapName = '';
-    setInterval(() => {
+    const mapWatch = setInterval(() => {
       const map = bridgeClientRef.current?.playerData.mapName ?? '';
       if (map && map !== lastMapName) {
         lastMapName = map;
         visualScripts.postEvent({ type: 'mapChange', payload: { map } });
       }
     }, 1000);
+    mapWatch.unref?.();
+    process.once('exit', () => clearInterval(mapWatch));
 
     devServer.start(4440);
   }

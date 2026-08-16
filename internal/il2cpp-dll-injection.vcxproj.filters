@@ -66,7 +66,6 @@
     <ClCompile Include="src\features\account\CharSelect.cpp" />
     <ClCompile Include="src\features\account\CredentialCapture.cpp" />
     <ClCompile Include="src\features\combat\autoaim\AutoAim.cpp" />
-    <ClCompile Include="src\features\combat\autoability\AutoAbility.cpp" />
     <ClCompile Include="src\features\movement\dodge\AoeTracking.cpp" />
     <ClCompile Include="src\features\visuals\skins\character\SkinChanger.cpp" />
     <ClCompile Include="src\features\visuals\skins\SkinDatabase.cpp" />
@@ -145,7 +144,6 @@
     <ClInclude Include="src\features\account\CharSelect.h" />
     <ClInclude Include="src\features\account\CredentialCapture.h" />
     <ClInclude Include="src\features\combat\autoaim\AutoAim.h" />
-    <ClInclude Include="src\features\combat\autoability\AutoAbility.h" />
     <ClInclude Include="src\features\movement\dodge\AoeTracking.h" />
     <ClInclude Include="src\features\visuals\skins\character\SkinChanger.h" />
     <ClInclude Include="src\features\visuals\skins\SkinDatabase.h" />
