@@ -10,6 +10,7 @@ namespace AutoAim {
 
 void Install();
 void Uninstall();
+bool IsInstalled();
 
 // Called from D3D Present each frame (~8ms throttle).
 void Tick();
