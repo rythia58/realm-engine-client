@@ -653,6 +653,33 @@ static void MovePlayer(float targetWorldX, float targetWorldY, float dt,
 // ─────────────────────────────────────────────────────────────────────────────
 // TestTAB::Tick — called every frame from dPresent
 // ─────────────────────────────────────────────────────────────────────────────
+// Walk-to gate diagnostics. g_walkActive is driven off GameState::GetLocalPtr(),
+// but movement needs WorldTAB's cached pointer; if those disagree the target line
+// draws and nothing moves. Kept out of Tick() -- __try there forbids unwindable objects.
+static void LogWalkGate(bool dodgeMoved, bool dodgeHandlesNav, bool worldPtr,
+                        bool gamePtr, float wx, float wy, float camX, float camY)
+{
+#ifndef _DEBUG
+    // DBG_FILE_LOG opens/flushes/closes the file per call; not worth doing on the
+    // render thread in a ship build.
+    (void)dodgeMoved; (void)dodgeHandlesNav; (void)worldPtr;
+    (void)gamePtr; (void)wx; (void)wy; (void)camX; (void)camY;
+#else
+    static ULONGLONG s_last = 0;
+    const ULONGLONG now = GetTickCount64();
+    if (now - s_last < 1000ULL) return;
+    s_last = now;
+    DBG_FILE_LOG("[WalkTo] steering=" << (int)XDodge::IsSteering()
+        << " radius=" << XDodge::GetSearchRadius()
+        << " dodgeMoved=" << (int)dodgeMoved
+        << " dodgeHandlesNav=" << (int)dodgeHandlesNav
+        << " worldLocalPtr=" << (int)worldPtr
+        << " gameLocalPtr=" << (int)gamePtr
+        << " target=(" << wx << "," << wy << ")"
+        << " cam=(" << camX << "," << camY << ")");
+#endif
+}
+
 void TestTAB::Tick(bool menuVisible)
 {
     // ImGui DeltaTime is sometimes 0 or huge on injected Present paths — use QPC when needed.
@@ -878,13 +905,25 @@ void TestTAB::Tick(bool menuVisible)
     {
         bool active = false;
 
+        // The dodge planners work inside a ~5 tile grid (XDodge kRad*kCell), so a
+        // walk target past that is beyond anything they can route to. Enabling a
+        // dodge mode used to hand them ALL navigation, which silently killed
+        // long-range Walk-To. Give it back unless dodge is actively steering.
+        bool dodgeOwnsNav = true;
+        if (g_walkActive && localPlayer) {
+            const float gdx = g_walkX - camX;
+            const float gdy = g_walkY - camY;
+            if (sqrtf(gdx * gdx + gdy * gdy) > XDodge::GetSearchRadius() && !XDodge::IsSteering())
+                dodgeOwnsNav = false;
+        }
+
         if (localPlayer && IsAnyAutoDodgeEnabled()) {
             // XDodge runs from Detour_AppEngineUpdate — install the hook lazily.
             // DangerPlanner steering is kept off; XDodge handles movement itself.
             DangerPlanner::TryInstall();
-            active = true;   // dodge is steering.
-            dodgeMoved = true;
-            dodgeHandlesNav = true;
+            active = true;   // dodge is live.
+            dodgeMoved = dodgeOwnsNav;
+            dodgeHandlesNav = dodgeOwnsNav;
 
             // Draw intent vector overlay (green) when the player is pressing WASD
             if (dl && g_w2sValid && s_hasIntent && active) {
@@ -901,6 +940,10 @@ void TestTAB::Tick(bool menuVisible)
                 }
             }
         }
+
+        if (g_walkActive)
+            LogWalkGate(dodgeMoved, dodgeHandlesNav, localPlayer != nullptr,
+                        GameState::GetLocalPtr() != nullptr, g_walkX, g_walkY, camX, camY);
 
         if (!dodgeMoved && !dodgeHandlesNav && g_walkActive) {
             if (localPlayer) {

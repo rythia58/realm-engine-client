@@ -1504,6 +1504,7 @@ void SetEnabled(bool en)
     }
 }
 bool IsEnabled() { return g_enabled; }
+bool IsSteering() { return g_enabled && g_havePlan; }
 void OnEnter()
 {
     g_havePlan   = false;
