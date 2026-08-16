@@ -32,8 +32,8 @@ bool    GetAutoAbilityEnabled();
 void    SetAutoAbilityEnabled(bool enabled);
 float   GetAutoAbilityMpPct();
 void    SetAutoAbilityMpPct(float pctZeroTo100);
-int     GetAutoAbilityWizardMode();
-void    SetAutoAbilityWizardMode(int mode);
+int     GetAutoAbilityItemType();
+void    SetAutoAbilityItemType(int itemType);
 
 float   GetWalkTargetX();
 float   GetWalkTargetY();

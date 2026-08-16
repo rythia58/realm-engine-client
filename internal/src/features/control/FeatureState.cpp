@@ -23,7 +23,7 @@ namespace {
 }
 
 static std::atomic<int> s_featAutoAimEnabled{0}, s_featAutoAimMode{0}, s_featProjectileNoclipEnabled{0};
-static std::atomic<int> s_featDodgeMode{0}, s_featDodgeWallAvoid{1}, s_featAutoAbilityEnabled{0}, s_featAutoAbilityWizardMode{0};
+static std::atomic<int> s_featDodgeMode{0}, s_featDodgeWallAvoid{1}, s_featAutoAbilityEnabled{0}, s_featAutoAbilityItemType{-1};
 static std::atomic<int> s_featPlayerNoclipActive{0}, s_featPlayerNoclipEnabled{0}, s_featPlayerNoclipHotkeyVk{'N'}, s_pendingPlayerNoclipEnabled{-1};
 static std::atomic<int> s_featSocketHotkeyActive{0}, s_featSocketHotkeyVk{'L'}, s_featWalkTargetActive{0};
 static std::atomic<int> s_featCameraZoomActive{0}, s_featCameraAngleActive{0}, s_featCameraAngleValue{0}, s_featCameraCenteringActive{0}, s_featCameraCentered{1};
@@ -55,8 +55,8 @@ bool    GetAutoAbilityEnabled()                     { return s_featAutoAbilityEn
 void    SetAutoAbilityEnabled(bool v)               { s_featAutoAbilityEnabled.store(v ? 1 : 0, std::memory_order_relaxed); }
 float   GetAutoAbilityMpPct()                       { return s_featAutoAbilityMpPct.load(std::memory_order_relaxed); }
 void    SetAutoAbilityMpPct(float pct)              { s_featAutoAbilityMpPct.store(ClampFloat(pct, 0.f, 100.f), std::memory_order_relaxed); }
-int     GetAutoAbilityWizardMode()                  { return s_featAutoAbilityWizardMode.load(std::memory_order_relaxed); }
-void    SetAutoAbilityWizardMode(int mode)          { s_featAutoAbilityWizardMode.store(mode == 1 ? 1 : 0, std::memory_order_relaxed); }
+int     GetAutoAbilityItemType()                    { return s_featAutoAbilityItemType.load(std::memory_order_relaxed); }
+void    SetAutoAbilityItemType(int itemType)        { s_featAutoAbilityItemType.store(itemType, std::memory_order_relaxed); }
 
 float   GetWalkTargetX()                            { return s_featWalkTargetX.load(std::memory_order_relaxed); }
 float   GetWalkTargetY()                            { return s_featWalkTargetY.load(std::memory_order_relaxed); }
