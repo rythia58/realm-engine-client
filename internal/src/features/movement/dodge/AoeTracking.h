@@ -43,6 +43,8 @@ namespace AoeTracking {
 
     // How many native spawn hooks are active (effect paths + explosion path).
     int  CountHooks();
+    // 4 = all resolved. See kShowEffectMethod in the .cpp for the known gap.
+    constexpr int kExpectedHooks = 4;
 
     // Live GJJ throwable field-offset probe. The KOBMINBDOBD hook receives the
     // true origin/dest as PARAMS, so it matches them against the instance's float

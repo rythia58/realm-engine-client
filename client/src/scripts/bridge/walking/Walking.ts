@@ -36,21 +36,28 @@ export class BridgeWalking {
       return Walking.walkTo(x, y);
     };
 
-    const walkToPortalMatching = (nameFilter: string | null): boolean => {
+    const walkToPortalMatching = (
+      match: ((objName: string) => boolean) | null,
+    ): boolean => {
       const origin = playerPos();
       if (!origin) return false;
       const portals = deps.worldState.getPortalsSorted(deps.gameData, origin);
       for (const p of portals) {
-        if (!nameFilter) return Walking.walkTo(p.x, p.y);
+        if (!match) return Walking.walkTo(p.x, p.y);
         const objName = String(deps.gameData.getObject(p.objectType)?.id ?? '').toLowerCase();
-        if (objName.includes(nameFilter.toLowerCase())) return Walking.walkTo(p.x, p.y);
+        if (match(objName)) return Walking.walkTo(p.x, p.y);
       }
       return false;
     };
 
-    Walking.walkToPortal = (name: string) => walkToPortalMatching(name);
+    Walking.walkToPortal = (name: string) => {
+      const needle = name.toLowerCase();
+      return walkToPortalMatching((n) => n.includes(needle));
+    };
     Walking.walkToNearestPortal = () => walkToPortalMatching(null);
-    Walking.walkToNexusPortal = () => walkToPortalMatching('nexus');
+    // "Portal to Nexus" goes back; "Nexus Portal" is a realm entrance, and a
+    // substring match on "nexus" picked whichever was nearer.
+    Walking.walkToNexusPortal = () => walkToPortalMatching((n) => n === 'portal to nexus');
 
     Walking.walkToLeftWall = () => {
       warnUnimplemented('Walking.walkToLeftWall');

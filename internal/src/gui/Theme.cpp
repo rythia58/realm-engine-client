@@ -270,6 +270,17 @@ void Load()
 	s_cfg.rounding  = clampf(s_cfg.rounding, 0.f, 14.f);
 	s_cfg.alpha     = clampf(s_cfg.alpha, 0.3f, 1.f);
 	s_cfg.fontScale = clampf(s_cfg.fontScale, 0.7f, 1.6f);
+
+	// Colours were unclamped: text alpha 0 renders an invisible, unrecoverable menu.
+	auto clampCol = [&](ImVec4& c, float minAlpha) {
+		c.x = clampf(c.x, 0.f, 1.f);
+		c.y = clampf(c.y, 0.f, 1.f);
+		c.z = clampf(c.z, 0.f, 1.f);
+		c.w = clampf(c.w, minAlpha, 1.f);
+	};
+	clampCol(s_cfg.accent, 0.25f);
+	clampCol(s_cfg.background, 0.25f);
+	clampCol(s_cfg.text, 0.5f);
 }
 
 bool TabButton(const char* label, bool active)

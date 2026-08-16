@@ -17,7 +17,6 @@
 #include "FloatingTextService.h"
 #include "GameState.h"
 #include "AutoAim.h"
-#include "AutoAbility.h"
 #include "ProjNoclip.h"
 #include "Noclip.h"
 #include "gui/tabs/TestTAB.h"
@@ -72,18 +71,6 @@ namespace {
         if (dodgeMode != static_cast<int>(TestTAB::DodgeMode::Off)) DangerPlanner::TryInstall();
         float horizonMs = FeatureState::GetAutoDodgeHorizonMs();
         if (horizonMs != s_lastHorizonMs) { s_lastHorizonMs = horizonMs; TestTAB::SetDodgeLookaheadMs(horizonMs); }
-    }
-
-    void ApplyAutoAbilityFeatureState()
-    {
-        static int s_lastEnabled = -1, s_lastItemType = INT32_MIN;
-        static float s_lastMpPct = -1.f;
-        const int enabled = FeatureState::GetAutoAbilityEnabled() ? 1 : 0;
-        const float mpPct = FeatureState::GetAutoAbilityMpPct();
-        const int itemType = FeatureState::GetAutoAbilityItemType();
-        if (enabled != s_lastEnabled) { s_lastEnabled = enabled; AutoAbility::SetEnabled(enabled != 0); }
-        if (mpPct != s_lastMpPct) { s_lastMpPct = mpPct; AutoAbility::SetMpThresholdPct(mpPct); }
-        if (itemType != s_lastItemType) { s_lastItemType = itemType; AutoAbility::SetAbilityItemType(itemType); }
     }
 
     bool IsCurrentProcessForeground()
@@ -338,6 +325,6 @@ void FeatureRuntime::ApplyOverrides()
     ApplyPlayerNoclipFeatureState();
     if (GameState::GetLocalPtr() == nullptr) return;
     if (GameState::GetWorldMgr() == nullptr) return;
-    ApplyAutoAimFeatureState(); ApplyProjectileNoclipFeatureState(); ApplyAutoDodgeFeatureState(); ApplyAutoAbilityFeatureState();
+    ApplyAutoAimFeatureState(); ApplyProjectileNoclipFeatureState(); ApplyAutoDodgeFeatureState();
     ApplyWalkTargetFeatureState(); ApplyCameraFeatureState(); FloatingTextService::ApplyPendingPluginText();
 }

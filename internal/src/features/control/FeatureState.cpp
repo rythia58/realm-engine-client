@@ -23,12 +23,12 @@ namespace {
 }
 
 static std::atomic<int> s_featAutoAimEnabled{0}, s_featAutoAimMode{0}, s_featProjectileNoclipEnabled{0};
-static std::atomic<int> s_featDodgeMode{0}, s_featDodgeWallAvoid{1}, s_featAutoAbilityEnabled{0}, s_featAutoAbilityItemType{-1};
+static std::atomic<int> s_featDodgeMode{0}, s_featDodgeWallAvoid{1};
 static std::atomic<int> s_featPlayerNoclipActive{0}, s_featPlayerNoclipEnabled{0}, s_featPlayerNoclipHotkeyVk{'N'}, s_pendingPlayerNoclipEnabled{-1};
 static std::atomic<int> s_featSocketHotkeyActive{0}, s_featSocketHotkeyVk{'L'}, s_featWalkTargetActive{0};
 static std::atomic<int> s_featCameraZoomActive{0}, s_featCameraAngleActive{0}, s_featCameraAngleValue{0}, s_featCameraCenteringActive{0}, s_featCameraCentered{1};
 static std::atomic<int> s_featSkinOverrideEnabled{0}, s_featSkinOverrideId{0};
-static std::atomic<float> s_featDodgeHorizonMs{800.f}, s_featDodgeHitboxPadding{0.f}, s_featAutoAbilityMpPct{0.f};
+static std::atomic<float> s_featDodgeHorizonMs{800.f}, s_featDodgeHitboxPadding{0.f};
 static std::atomic<float> s_featWalkTargetX{0.f}, s_featWalkTargetY{0.f}, s_featCameraZoomValue{8.f};
 static std::atomic<int32_t> s_featClientDefense{static_cast<int32_t>(0x80000000u)}, s_featClientClassType{0};
 // Total SPD stat (base + bonus) pushed from the client's NEWTICK — server-
@@ -51,12 +51,6 @@ void    SetAutoDodgeHitboxPadding(float paddingTiles) { s_featDodgeHitboxPadding
 bool    GetAutoDodgeWallAvoid()                     { return s_featDodgeWallAvoid.load(std::memory_order_relaxed) != 0; }
 void    SetAutoDodgeWallAvoid(bool v)               { s_featDodgeWallAvoid.store(v ? 1 : 0, std::memory_order_relaxed); }
 
-bool    GetAutoAbilityEnabled()                     { return s_featAutoAbilityEnabled.load(std::memory_order_relaxed) != 0; }
-void    SetAutoAbilityEnabled(bool v)               { s_featAutoAbilityEnabled.store(v ? 1 : 0, std::memory_order_relaxed); }
-float   GetAutoAbilityMpPct()                       { return s_featAutoAbilityMpPct.load(std::memory_order_relaxed); }
-void    SetAutoAbilityMpPct(float pct)              { s_featAutoAbilityMpPct.store(ClampFloat(pct, 0.f, 100.f), std::memory_order_relaxed); }
-int     GetAutoAbilityItemType()                    { return s_featAutoAbilityItemType.load(std::memory_order_relaxed); }
-void    SetAutoAbilityItemType(int itemType)        { s_featAutoAbilityItemType.store(itemType, std::memory_order_relaxed); }
 
 float   GetWalkTargetX()                            { return s_featWalkTargetX.load(std::memory_order_relaxed); }
 float   GetWalkTargetY()                            { return s_featWalkTargetY.load(std::memory_order_relaxed); }

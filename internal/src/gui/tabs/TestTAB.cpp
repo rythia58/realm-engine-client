@@ -1,4 +1,5 @@
 #include "pch-il2cpp.h"
+#include "IpcBridge.h"
 #include "TestTAB.h"
 #include "DangerPlanner.h"
 #include "MovementRuntime.h"
@@ -1250,6 +1251,14 @@ void TestTAB::Render()
     ImGui::TextDisabled("%s", settings.bEnableDiagBridge
         ? "Writing %LOCALAPPDATA%\\RealmEngine\\{diag,cmd,resp}.json (~1 Hz)."
         : "Off — no files written. Enable to use the re_* MCP tools.");
+
+    {
+        const uint32_t dropped = IpcBridge_GetDroppedEventCount();
+        if (dropped > 0)
+            ImGui::TextColored(ImVec4(1.f, 0.75f, 0.3f, 1.f), "Bridge events dropped: %u (queue full)", dropped);
+        else
+            ImGui::TextDisabled("Bridge events dropped: 0");
+    }
 
     ImGui::Spacing();
     ImGui::Separator();

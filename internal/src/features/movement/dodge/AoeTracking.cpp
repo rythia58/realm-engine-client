@@ -71,7 +71,12 @@ static constexpr float kDedupTolSq = 0.01f;  // (0.1 tile)^2
 // than chip the player.
 static constexpr float kDefaultAoeRadiusTiles = 3.5f;
 
-// HJMBOMEHGDJ::CGBILOJJPEI — ShowEffect packet handler (RVA 0x180B33560).
+// ShowEffect packet handler. STALE as of the current dump: CGBILOJJPEI no longer
+// exists in il2cpp-functions.h, and HJMBOMEHGDJ is now MapViewService. The three
+// spawn hooks below still resolve, so AoE tracking runs at 3/4 coverage and
+// misses telegraphs that only arrive via ShowEffect. Re-derive from a fresh dump
+// (the message class COEFCBBIBMC still exists; nothing takes it as a parameter,
+// so the handler is likely registered through a dispatch table).
 // Catches THROW(4), NOVA(5), CIRCLE_TELEGRAPH(23), AoE(39) effect types.
 // x64 ABI: rcx=this (HJMBOMEHGDJ*), rdx=COEFCBBIBMC* msg, r8=MethodInfo*
 static constexpr const char* kShowEffectClass      = "HJMBOMEHGDJ";

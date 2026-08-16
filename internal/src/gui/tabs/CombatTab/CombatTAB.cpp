@@ -34,15 +34,6 @@ void Tick(bool menuVisible)
         FeatAutoNexus::Tick();
 }
 
-// AutoAbility was an experimental phase-2 feature trimmed in the production
-// cleanup. The shims below keep the IpcBridge entry points alive (so legacy
-// "setFeature autoAbility..." messages no-op gracefully) without re-introducing
-// the dead code path.
-void RefreshAutoAbilityAimVisualCache() {}
-bool GetAutoAbilityAimVisual(float&, float&) { return false; }
-void SetAutoAbility(bool) {}
-void SetAbilityMpPct(float) {}
-void SetWizardAbilityTargetMode(int) {}
 
 void Render()
 {

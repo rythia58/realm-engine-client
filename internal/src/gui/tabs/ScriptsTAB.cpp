@@ -9,6 +9,7 @@
 #include <imgui/imgui_internal.h>
 #include <string>
 #include <vector>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <cmath>
@@ -23,14 +24,108 @@ namespace {
 bool s_editorOpen = false;
 std::string s_selectedId;
 std::string s_selectedNode;
-int s_selectedLink = -1;
 ImVec2 s_pan{ 40.f, 40.f };
 float s_zoom = 1.f;
 bool s_dirty = false;
 int s_uidCounter = 0;
 
-struct PendingLink { bool active = false; std::string from, fromPort, type; };
+// Render-thread-owned copies; the store mutates its own state from the IPC thread.
+Graph s_graph;
+std::vector<NodeDef> s_defsCache;
+uint32_t s_defsGen = 0;
+
+// Keyed by endpoints, not index: deleting a node shifts the links after it.
+struct SelectedLink {
+	bool active = false;
+	std::string from, fromPort, to, toPort;
+
+	bool Matches(const GraphLink& l) const
+	{
+		return active && l.from == from && l.fromPort == fromPort && l.to == to && l.toPort == toPort;
+	}
+	void Set(const GraphLink& l)
+	{
+		active = true; from = l.from; fromPort = l.fromPort; to = l.to; toPort = l.toPort;
+	}
+	void Clear() { *this = SelectedLink{}; }
+};
+SelectedLink s_selectedLink;
+
+struct PendingLink {
+	bool active = false;
+	std::string from, fromPort, type;
+	bool fromIsOutput = true;
+};
 PendingLink s_linkDrag;
+
+// One connectable point on the canvas, rebuilt each frame.
+struct PortRef {
+	std::string nodeId;
+	std::string port;
+	bool isOutput = false;
+	bool isFlow = false;
+	ImVec2 pos{};
+};
+
+// Grab/snap radii in pixels. Zoom scales them but never below a usable size --
+// the old per-port InvisibleButtons were ~16px at 1.0 zoom and 10px at 0.4.
+float PortGrabRadius() { return (std::max)(11.f, 13.f * s_zoom); }
+float PortSnapRadius() { return (std::max)(22.f, 26.f * s_zoom); }
+
+const PortRef* NearestPort(const std::vector<PortRef>& ports, const ImVec2& at, float maxDist,
+                           const PendingLink* compatibleWith)
+{
+	const PortRef* best = nullptr;
+	float bestSq = maxDist * maxDist;
+	for (const auto& pr : ports) {
+		if (compatibleWith) {
+			if (pr.isOutput == compatibleWith->fromIsOutput) continue;
+			if (pr.isFlow != (compatibleWith->type == "flow")) continue;
+			if (pr.nodeId == compatibleWith->from) continue;
+		}
+		const float dx = pr.pos.x - at.x, dy = pr.pos.y - at.y;
+		const float d2 = dx * dx + dy * dy;
+		if (d2 < bestSq) { bestSq = d2; best = &pr; }
+	}
+	return best;
+}
+
+// Normalises to output->input, then enforces one link per input (and one flow
+// link per output) before adding.
+void ConnectPorts(Graph& g, const PendingLink& drag, const PortRef& target)
+{
+	const bool isFlow = target.isFlow;
+	std::string fromId, fromPort, toId, toPort;
+	if (drag.fromIsOutput) {
+		fromId = drag.from;   fromPort = drag.fromPort;
+		toId   = target.nodeId; toPort = target.port;
+	} else {
+		fromId = target.nodeId; fromPort = target.port;
+		toId   = drag.from;   toPort = drag.fromPort;
+	}
+
+	for (size_t k = 0; k < g.links.size(); ) {
+		const bool sameIn = g.links[k].to == toId && g.links[k].toPort == toPort &&
+			g.links[k].isData == !isFlow;
+		const bool sameOut = isFlow && g.links[k].from == fromId && g.links[k].fromPort == fromPort;
+		if (sameIn || sameOut) g.links.erase(g.links.begin() + k);
+		else ++k;
+	}
+
+	GraphLink l;
+	l.from = fromId; l.fromPort = fromPort;
+	l.to = toId;     l.toPort = toPort;
+	l.isData = !isFlow;
+	g.links.push_back(l);
+	s_dirty = true;
+}
+
+const NodeDef* FindDef(const std::string& type)
+{
+	for (const auto& d : s_defsCache)
+		if (d.type == type) return &d;
+	return nullptr;
+}
 
 ImU32 CategoryColor(const std::string& cat)
 {
@@ -40,10 +135,17 @@ ImU32 CategoryColor(const std::string& cat)
 	return IM_COL32(176, 106, 212, 255);
 }
 
-std::string NewNodeId()
+std::string NewNodeId(const Graph& g)
 {
 	char buf[32];
-	snprintf(buf, sizeof(buf), "n%d%d", (int)(ImGui::GetTime() * 1000) % 100000, s_uidCounter++);
+	for (int attempt = 0; attempt < 10000; ++attempt) {
+		snprintf(buf, sizeof(buf), "n%u_%d",
+			(unsigned)(GetTickCount64() & 0xFFFFFu), s_uidCounter++);
+		bool taken = false;
+		for (const auto& n : g.nodes)
+			if (n.id == buf) { taken = true; break; }
+		if (!taken) return buf;
+	}
 	return buf;
 }
 
@@ -55,6 +157,7 @@ ImVec2 NodeSize(const NodeDef* def)
 
 ImVec2 PortPos(const GraphNode& n, const NodeDef* def, const std::string& port, bool isOutput, const ImVec2& origin)
 {
+	if (!def) return ImVec2(0.f, 0.f);
 	const ImVec2 size = NodeSize(def);
 	const auto& ports = isOutput ? def->outputs : def->inputs;
 	int idx = 0;
@@ -151,11 +254,11 @@ void DrawPalette(Graph& g)
 	const char* catLabels[] = { "ENTRY", "CONTROL", "DATA", "ACTION" };
 	for (int c = 0; c < 4; ++c) {
 		ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(CategoryColor(cats[c])), "%s", catLabels[c]);
-		for (const auto& def : VisualScriptStore::Defs()) {
+		for (const auto& def : s_defsCache) {
 			if (def.category != cats[c]) continue;
 			if (ImGui::Selectable(def.label.c_str())) {
 				GraphNode n;
-				n.id = NewNodeId();
+				n.id = NewNodeId(g);
 				n.type = def.type;
 				n.x = (200.f - s_pan.x) / s_zoom;
 				n.y = (150.f - s_pan.y) / s_zoom;
@@ -211,7 +314,7 @@ void DrawCanvas(Graph& g)
 	// Deselect only when the click landed on bare canvas, not on a node above it.
 	if (canvasClaimedClick && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !s_linkDrag.active) {
 		s_selectedNode.clear();
-		s_selectedLink = -1;
+		s_selectedLink.Clear();
 	}
 
 	// Links under nodes.
@@ -224,12 +327,12 @@ void DrawCanvas(Graph& g)
 			if (n.id == l.to) toNode = &n;
 		}
 		if (!fromNode || !toNode) continue;
-		const NodeDef* fd = VisualScriptStore::FindDef(fromNode->type.c_str());
-		const NodeDef* td = VisualScriptStore::FindDef(toNode->type.c_str());
+		const NodeDef* fd = FindDef(fromNode->type);
+		const NodeDef* td = FindDef(toNode->type);
 		if (!fd || !td) continue;
 		const ImVec2 a = PortPos(*fromNode, fd, l.fromPort, true, origin);
 		const ImVec2 b = PortPos(*toNode, td, l.toPort, false, origin);
-		const ImU32 col = (int)li == s_selectedLink ? IM_COL32(255, 255, 255, 255)
+		const ImU32 col = s_selectedLink.Matches(l) ? IM_COL32(255, 255, 255, 255)
 			: (l.isData ? IM_COL32(74, 144, 217, 220) : IM_COL32(201, 162, 39, 230));
 		DrawLinkCurve(dl, a, b, col, l.isData, 2.f * s_zoom);
 
@@ -239,15 +342,44 @@ void DrawCanvas(Graph& g)
 		if (canvasHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
 			const ImVec2 m = ImGui::GetIO().MousePos;
 			if (std::fabs(m.x - mid.x) < 9.f && std::fabs(m.y - mid.y) < 9.f) {
-				s_selectedLink = (int)li;
+				s_selectedLink.Set(l);
 				s_selectedNode.clear();
 			}
 		}
 	}
 
+	// Port geometry for the whole graph, so drag/drop can hit-test against all
+	// of them instead of relying on per-port hover (which ImGui suppresses while
+	// another item holds ActiveId -- that is why drops used to miss).
+	static std::vector<PortRef> ports;
+	ports.clear();
+	for (const auto& n : g.nodes) {
+		const NodeDef* def = FindDef(n.type);
+		if (!def) continue;
+		for (const auto& in : def->inputs)
+			ports.push_back({ n.id, in.name, false, in.type == "flow", PortPos(n, def, in.name, false, origin) });
+		for (const auto& out : def->outputs)
+			ports.push_back({ n.id, out.name, true, out.type == "flow", PortPos(n, def, out.name, true, origin) });
+	}
+
+	const ImVec2 mouse = ImGui::GetIO().MousePos;
+	const PortRef* grabCandidate = canvasHovered && !s_linkDrag.active
+		? NearestPort(ports, mouse, PortGrabRadius(), nullptr) : nullptr;
+	const PortRef* dropCandidate = s_linkDrag.active
+		? NearestPort(ports, mouse, PortSnapRadius(), &s_linkDrag) : nullptr;
+
+	// Start a drag from either side; direction is normalised on connect.
+	if (grabCandidate && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+		s_linkDrag.active = true;
+		s_linkDrag.from = grabCandidate->nodeId;
+		s_linkDrag.fromPort = grabCandidate->port;
+		s_linkDrag.type = grabCandidate->isFlow ? "flow" : "data";
+		s_linkDrag.fromIsOutput = grabCandidate->isOutput;
+	}
+
 	// Nodes.
 	for (auto& n : g.nodes) {
-		const NodeDef* def = VisualScriptStore::FindDef(n.type.c_str());
+		const NodeDef* def = FindDef(n.type);
 		if (!def) continue;
 		const ImVec2 size = NodeSize(def);
 		const ImVec2 tl(origin.x + n.x * s_zoom, origin.y + n.y * s_zoom);
@@ -263,87 +395,71 @@ void DrawCanvas(Graph& g)
 
 		ImGui::PushID(n.id.c_str());
 
-		// Whole node selects; header (submitted after) drags; ports (after that) link.
+		// Grabbing a port must not also start a node drag.
+		const bool portBusy = s_linkDrag.active || grabCandidate != nullptr;
+
 		ImGui::SetCursorScreenPos(tl);
 		ImGui::SetNextItemAllowOverlap();
 		ImGui::InvisibleButton("##body", ImVec2(size.x * s_zoom, size.y * s_zoom));
-		if (ImGui::IsItemClicked()) { s_selectedNode = n.id; s_selectedLink = -1; }
+		if (!portBusy && ImGui::IsItemClicked()) { s_selectedNode = n.id; s_selectedLink.Clear(); }
 
 		ImGui::SetCursorScreenPos(tl);
 		ImGui::SetNextItemAllowOverlap();
 		ImGui::InvisibleButton("##head", ImVec2(size.x * s_zoom, 24.f * s_zoom));
-		if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+		if (!portBusy && ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
 			const ImVec2 d = ImGui::GetIO().MouseDelta;
 			n.x += d.x / s_zoom;
 			n.y += d.y / s_zoom;
 			s_dirty = true;
 		}
-		if (ImGui::IsItemClicked()) { s_selectedNode = n.id; s_selectedLink = -1; }
+		if (!portBusy && ImGui::IsItemClicked()) { s_selectedNode = n.id; s_selectedLink.Clear(); }
 
-		// Ports.
-		const float dotR = 5.f * s_zoom;
-		for (size_t i = 0; i < def->inputs.size(); ++i) {
-			const ImVec2 p = PortPos(n, def, def->inputs[i].name, false, origin);
-			const bool isFlow = def->inputs[i].type == "flow";
-			if (isFlow) dl->AddRectFilled(ImVec2(p.x - dotR, p.y - dotR), ImVec2(p.x + dotR, p.y + dotR), IM_COL32(201, 162, 39, 255), 2.f);
-			else dl->AddCircleFilled(p, dotR, IM_COL32(74, 144, 217, 255));
-			dl->AddText(ImVec2(p.x + 9.f * s_zoom, p.y - 7.f * s_zoom), IM_COL32(190, 195, 210, 255), def->inputs[i].name.c_str());
+		// Ports are drawn here but hit-tested globally above.
+		const float dotR = (std::max)(4.f, 5.f * s_zoom);
+		auto drawPort = [&](const ImVec2& p, bool isFlow, bool isOutput, const std::string& name) {
+			const bool isDrop = dropCandidate && dropCandidate->nodeId == n.id && dropCandidate->port == name
+				&& dropCandidate->isOutput == isOutput;
+			const bool isGrab = grabCandidate && grabCandidate->nodeId == n.id && grabCandidate->port == name
+				&& grabCandidate->isOutput == isOutput;
+			const float r = (isDrop || isGrab) ? dotR * 1.6f : dotR;
+			const ImU32 col = isFlow ? IM_COL32(201, 162, 39, 255) : IM_COL32(74, 144, 217, 255);
+			if (isFlow) dl->AddRectFilled(ImVec2(p.x - r, p.y - r), ImVec2(p.x + r, p.y + r), col, 2.f);
+			else dl->AddCircleFilled(p, r, col);
+			if (isDrop) dl->AddCircle(p, r + 5.f, IM_COL32(255, 255, 255, 235), 16, 2.f);
+			else if (isGrab) dl->AddCircle(p, r + 4.f, IM_COL32(255, 255, 255, 150), 16, 1.5f);
+		};
 
-			ImGui::SetCursorScreenPos(ImVec2(p.x - dotR - 3.f, p.y - dotR - 3.f));
-			ImGui::PushID((int)i + 1000);
-			ImGui::InvisibleButton("##in", ImVec2(dotR * 2.f + 6.f, dotR * 2.f + 6.f));
-			if (s_linkDrag.active && ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-				const bool bothFlow = (s_linkDrag.type == "flow") == isFlow;
-				if (bothFlow && s_linkDrag.from != n.id) {
-					for (size_t k = 0; k < g.links.size(); ) {
-						const bool sameIn = g.links[k].to == n.id && g.links[k].toPort == def->inputs[i].name && g.links[k].isData == !isFlow;
-						const bool sameOut = isFlow && g.links[k].from == s_linkDrag.from && g.links[k].fromPort == s_linkDrag.fromPort;
-						if (sameIn || sameOut) g.links.erase(g.links.begin() + k);
-						else ++k;
-					}
-					GraphLink l;
-					l.from = s_linkDrag.from; l.fromPort = s_linkDrag.fromPort;
-					l.to = n.id; l.toPort = def->inputs[i].name;
-					l.isData = !isFlow;
-					g.links.push_back(l);
-					s_dirty = true;
-				}
-				s_linkDrag = PendingLink{};
-			}
-			ImGui::PopID();
+		for (const auto& in : def->inputs) {
+			const ImVec2 p = PortPos(n, def, in.name, false, origin);
+			drawPort(p, in.type == "flow", false, in.name);
+			dl->AddText(ImVec2(p.x + 9.f * s_zoom, p.y - 7.f * s_zoom), IM_COL32(190, 195, 210, 255), in.name.c_str());
 		}
-		for (size_t i = 0; i < def->outputs.size(); ++i) {
-			const ImVec2 p = PortPos(n, def, def->outputs[i].name, true, origin);
-			const bool isFlow = def->outputs[i].type == "flow";
-			if (isFlow) dl->AddRectFilled(ImVec2(p.x - dotR, p.y - dotR), ImVec2(p.x + dotR, p.y + dotR), IM_COL32(201, 162, 39, 255), 2.f);
-			else dl->AddCircleFilled(p, dotR, IM_COL32(74, 144, 217, 255));
-			const ImVec2 ts = ImGui::CalcTextSize(def->outputs[i].name.c_str());
-			dl->AddText(ImVec2(p.x - 9.f * s_zoom - ts.x, p.y - 7.f * s_zoom), IM_COL32(190, 195, 210, 255), def->outputs[i].name.c_str());
-
-			ImGui::SetCursorScreenPos(ImVec2(p.x - dotR - 3.f, p.y - dotR - 3.f));
-			ImGui::PushID((int)i + 2000);
-			ImGui::InvisibleButton("##out", ImVec2(dotR * 2.f + 6.f, dotR * 2.f + 6.f));
-			if (ImGui::IsItemClicked()) {
-				s_linkDrag.active = true;
-				s_linkDrag.from = n.id;
-				s_linkDrag.fromPort = def->outputs[i].name;
-				s_linkDrag.type = def->outputs[i].type;
-			}
-			ImGui::PopID();
+		for (const auto& out : def->outputs) {
+			const ImVec2 p = PortPos(n, def, out.name, true, origin);
+			drawPort(p, out.type == "flow", true, out.name);
+			const ImVec2 ts = ImGui::CalcTextSize(out.name.c_str());
+			dl->AddText(ImVec2(p.x - 9.f * s_zoom - ts.x, p.y - 7.f * s_zoom), IM_COL32(190, 195, 210, 255), out.name.c_str());
 		}
 		ImGui::PopID();
 	}
 
 	if (s_linkDrag.active) {
-		for (const auto& n : g.nodes) {
-			if (n.id != s_linkDrag.from) continue;
-			const NodeDef* def = VisualScriptStore::FindDef(n.type.c_str());
-			if (!def) break;
-			const ImVec2 a = PortPos(n, def, s_linkDrag.fromPort, true, origin);
-			DrawLinkCurve(dl, a, ImGui::GetIO().MousePos, IM_COL32(160, 160, 160, 200), true, 2.f);
+		ImVec2 a = mouse;
+		for (const auto& pr : ports) {
+			if (pr.nodeId != s_linkDrag.from || pr.port != s_linkDrag.fromPort) continue;
+			if (pr.isOutput != s_linkDrag.fromIsOutput) continue;
+			a = pr.pos;
 			break;
 		}
-		if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) s_linkDrag = PendingLink{};
+		const ImVec2 b = dropCandidate ? dropCandidate->pos : mouse;
+		const ImU32 col = dropCandidate ? IM_COL32(120, 230, 140, 235) : IM_COL32(160, 160, 160, 200);
+		if (s_linkDrag.fromIsOutput) DrawLinkCurve(dl, a, b, col, true, 2.f);
+		else                         DrawLinkCurve(dl, b, a, col, true, 2.f);
+
+		if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+			if (dropCandidate) ConnectPorts(g, s_linkDrag, *dropCandidate);
+			s_linkDrag = PendingLink{};
+		}
 	}
 
 	ImGui::EndChild();
@@ -367,14 +483,18 @@ void DrawInspector(Graph& g)
 		if (ImGui::InputInt("##idleFailSafe", &g.idleFailSafeSec)) s_dirty = true;
 	}
 
-	if (s_selectedLink >= 0 && s_selectedLink < (int)g.links.size()) {
-		const auto& l = g.links[s_selectedLink];
-		ImGui::SeparatorText("Link");
-		ImGui::TextWrapped("%s.%s -> %s.%s", l.from.c_str(), l.fromPort.c_str(), l.to.c_str(), l.toPort.c_str());
-		if (ImGui::Button("Delete link")) {
-			g.links.erase(g.links.begin() + s_selectedLink);
-			s_selectedLink = -1;
-			s_dirty = true;
+	if (s_selectedLink.active) {
+		for (size_t k = 0; k < g.links.size(); ++k) {
+			if (!s_selectedLink.Matches(g.links[k])) continue;
+			const auto& l = g.links[k];
+			ImGui::SeparatorText("Link");
+			ImGui::TextWrapped("%s.%s -> %s.%s", l.from.c_str(), l.fromPort.c_str(), l.to.c_str(), l.toPort.c_str());
+			if (ImGui::Button("Delete link")) {
+				g.links.erase(g.links.begin() + k);
+				s_selectedLink.Clear();
+				s_dirty = true;
+			}
+			break;
 		}
 	}
 
@@ -383,7 +503,7 @@ void DrawInspector(Graph& g)
 		if (n.id == s_selectedNode) { node = &n; break; }
 
 	if (node) {
-		const NodeDef* def = VisualScriptStore::FindDef(node->type.c_str());
+		const NodeDef* def = FindDef(node->type);
 		ImGui::SeparatorText(def ? def->label.c_str() : node->type.c_str());
 		ImGui::TextDisabled("id: %s", node->id.c_str());
 		if (def && !def->description.empty()) ImGui::TextWrapped("%s", def->description.c_str());
@@ -400,7 +520,7 @@ void DrawInspector(Graph& g)
 			s_selectedNode.clear();
 			s_dirty = true;
 		}
-	} else if (s_selectedLink < 0) {
+	} else if (!s_selectedLink.active) {
 		ImGui::Spacing();
 		ImGui::TextDisabled("Click a node to edit it.\nDrag an output dot to an input\ndot to connect.\nRight-drag to pan, wheel to zoom.");
 	}
@@ -425,19 +545,27 @@ void ScriptsTAB::Render()
 	}
 
 	if (ImGui::Button("New script")) {
-		Graph& g = VisualScriptStore::Editing();
-		g = Graph{};
-		char buf[32];
-		snprintf(buf, sizeof(buf), "ingame-%d", (int)ImGui::GetTime());
-		g.id = buf;
-		g.name = "New Script";
-		g.loaded = true;
+		s_graph = Graph{};
+		char buf[48];
+		unsigned suffix = (unsigned)(GetTickCount64() & 0xFFFFFFu);
+		for (int attempt = 0; attempt < 1000; ++attempt) {
+			snprintf(buf, sizeof(buf), "ingame-%u", suffix + (unsigned)attempt);
+			bool taken = false;
+			for (const auto& e : list)
+				if (e.id == buf) { taken = true; break; }
+			if (!taken) break;
+		}
+		s_graph.id = buf;
+		s_graph.name = "New Script";
+		s_graph.loaded = true;
 		GraphNode start;
-		start.id = NewNodeId();
+		start.id = NewNodeId(s_graph);
 		start.type = "Start";
 		start.x = 60.f; start.y = 80.f;
-		g.nodes.push_back(start);
-		s_selectedId = g.id;
+		s_graph.nodes.push_back(start);
+		s_selectedId = s_graph.id;
+		s_selectedNode.clear();
+		s_selectedLink.Clear();
 		s_editorOpen = true;
 		s_dirty = true;
 	}
@@ -458,10 +586,12 @@ void ScriptsTAB::Render()
 		ImGui::SameLine();
 		if (ImGui::SmallButton("Edit")) {
 			s_selectedId = s.id;
+			s_graph = Graph{};
+			s_graph.id = s.id;
 			VisualScriptStore::RequestGraph(s.id.c_str());
 			s_editorOpen = true;
 			s_selectedNode.clear();
-			s_selectedLink = -1;
+			s_selectedLink.Clear();
 			s_dirty = false;
 		}
 		ImGui::PopID();
@@ -479,21 +609,37 @@ void ScriptsTAB::RenderEditorWindow()
 		return;
 	}
 
-	Graph& g = VisualScriptStore::Editing();
+	{
+		Graph incoming;
+		if (VisualScriptStore::TakeIncomingGraph(incoming)) {
+			s_graph = std::move(incoming);
+			s_selectedNode.clear();
+			s_selectedLink.Clear();
+			s_dirty = false;
+		}
+	}
+	VisualScriptStore::CopyDefsIfChanged(s_defsCache, s_defsGen);
+
+	Graph& g = s_graph;
 
 	if (ImGui::Button("Save")) {
-		VisualScriptStore::SaveEditing();
+		VisualScriptStore::SaveGraph(g);
 		s_dirty = false;
 	}
 	ImGui::SameLine();
 	if (ImGui::Button("Reload")) {
-		if (!g.id.empty()) VisualScriptStore::RequestGraph(g.id.c_str());
+		if (!g.id.empty()) {
+			const std::string id = g.id;
+			s_graph = Graph{};
+			s_graph.id = id;
+			VisualScriptStore::RequestGraph(id.c_str());
+		}
 		s_dirty = false;
 	}
 	ImGui::SameLine();
 	ImGui::TextDisabled("%s%s", g.id.empty() ? "(no script)" : g.id.c_str(), s_dirty ? " *" : "");
 
-	if (VisualScriptStore::Defs().empty()) {
+	if (s_defsCache.empty()) {
 		ImGui::Separator();
 		ImGui::TextWrapped("Waiting for the node catalog from the client...");
 		ImGui::End();

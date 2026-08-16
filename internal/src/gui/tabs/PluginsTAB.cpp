@@ -47,6 +47,7 @@ void UpperCopy(char* dst, size_t dstSize, const char* src)
 
 void DrawRow(const FeatureRuntime::PluginStateEntry& p, float hotkeyColX)
 {
+	ImGui::PushID(p.id);
 	bool shown = p.enabled;
 	const auto it = s_pending.find(p.id);
 	if (it != s_pending.end()) {
@@ -74,6 +75,7 @@ void DrawRow(const FeatureRuntime::PluginStateEntry& p, float hotkeyColX)
 		ImGui::SameLine(hotkeyColX);
 		ImGui::TextDisabled("%s", label);
 	}
+	ImGui::PopID();
 }
 
 } // namespace

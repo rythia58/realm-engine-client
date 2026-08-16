@@ -2,7 +2,9 @@
 
 #include "VisualScriptStore.h"
 #include "IpcBridge.h"
+#include "FeatureRuntime.h"
 
+#include <atomic>
 #include <mutex>
 #include <cstdio>
 #include <cstring>
@@ -12,7 +14,11 @@ namespace {
 std::mutex s_mutex;
 std::vector<VisualScriptStore::ScriptEntry> s_list;
 std::vector<VisualScriptStore::NodeDef> s_defs;
-VisualScriptStore::Graph s_editing;
+std::atomic<uint32_t> s_defsGen{ 0 };
+
+// Filled by ApplyGraph, drained by TakeIncomingGraph.
+VisualScriptStore::Graph s_incoming;
+bool s_incomingReady = false;
 
 std::vector<std::string> Split(const std::string& s, char sep)
 {
@@ -140,8 +146,11 @@ void ApplyDefs(const char* spec)
 			parsed.push_back(std::move(d));
 		}
 	}
-	std::lock_guard<std::mutex> lk(s_mutex);
-	s_defs.swap(parsed);
+	{
+		std::lock_guard<std::mutex> lk(s_mutex);
+		s_defs.swap(parsed);
+	}
+	s_defsGen.fetch_add(1, std::memory_order_release);
 }
 
 void ApplyGraph(const char* spec)
@@ -182,8 +191,52 @@ void ApplyGraph(const char* spec)
 	}
 	g.loaded = true;
 	std::lock_guard<std::mutex> lk(s_mutex);
-	s_editing = std::move(g);
+	s_incoming = std::move(g);
+	s_incomingReady = true;
 }
+
+// A graph fetch can interleave with a list refresh, so each target buffers
+// separately instead of sharing one slot.
+
+namespace {
+
+constexpr size_t kMaxReassembledBytes = 1u << 18;   // 256 KB
+constexpr int    kMaxChunks           = 512;
+
+struct ChunkStream {
+	std::string target;
+	std::string buf;
+	int next = 0;
+	int total = 0;
+	bool active = false;
+};
+
+constexpr int kMaxStreams = 4;
+ChunkStream s_streams[kMaxStreams];
+
+ChunkStream* StreamFor(const std::string& target, bool starting)
+{
+	for (auto& s : s_streams)
+		if (s.active && s.target == target) return &s;
+	if (!starting) return nullptr;
+	for (auto& s : s_streams) {
+		if (!s.active) {
+			s = ChunkStream{};
+			s.target = target;
+			s.active = true;
+			return &s;
+		}
+	}
+	ChunkStream* victim = &s_streams[0];
+	for (auto& s : s_streams)
+		if (s.next < victim->next) victim = &s;
+	*victim = ChunkStream{};
+	victim->target = target;
+	victim->active = true;
+	return victim;
+}
+
+} // namespace
 
 void ApplyChunk(const char* spec)
 {
@@ -202,25 +255,25 @@ void ApplyChunk(const char* spec)
 	const int index = atoi(std::string(b1 + 1, b2 - b1 - 1).c_str());
 	const int total = atoi(std::string(b2 + 1, b3 - b2 - 1).c_str());
 	const char* data = b3 + 1;
-	if (total <= 0 || index < 0 || index >= total) return;
+	if (total <= 0 || total > kMaxChunks || index < 0 || index >= total) return;
 
-	static std::string s_buf;
-	static std::string s_target;
-	static int s_next = 0;
+	ChunkStream* s = StreamFor(target, index == 0);
+	if (!s) return;
+	if (index == 0) { s->buf.clear(); s->next = 0; s->total = total; }
+	if (index != s->next || total != s->total) { s->active = false; return; }
 
-	if (index == 0) { s_buf.clear(); s_target = target; s_next = 0; }
-	if (target != s_target || index != s_next) return;   // out of order — wait for a fresh index 0
+	if (s->buf.size() + strlen(data) > kMaxReassembledBytes) { s->active = false; return; }
+	s->buf += data;
+	s->next++;
+	if (s->next < s->total) return;
 
-	s_buf += data;
-	s_next++;
-	if (s_next < total) return;
-
-	if (s_target == "defs") ApplyDefs(s_buf.c_str());
-	else if (s_target == "list") ApplyList(s_buf.c_str());
-	else if (s_target == "graph") ApplyGraph(s_buf.c_str());
-	s_buf.clear();
-	s_target.clear();
-	s_next = 0;
+	if (target == "defs") ApplyDefs(s->buf.c_str());
+	else if (target == "list") ApplyList(s->buf.c_str());
+	else if (target == "graph") ApplyGraph(s->buf.c_str());
+	else if (target == "pluginStates") FeatureRuntime::ApplyPluginStates(s->buf.c_str());
+	s->active = false;
+	s->buf.clear();
+	s->buf.shrink_to_fit();
 }
 
 void CopyList(std::vector<ScriptEntry>& out)
@@ -229,22 +282,22 @@ void CopyList(std::vector<ScriptEntry>& out)
 	out = s_list;
 }
 
-const std::vector<NodeDef>& Defs()
+bool CopyDefsIfChanged(std::vector<NodeDef>& out, uint32_t& inOutGen)
 {
-	return s_defs;
+	const uint32_t gen = s_defsGen.load(std::memory_order_acquire);
+	if (gen == inOutGen) return false;
+	{
+		std::lock_guard<std::mutex> lk(s_mutex);
+		out = s_defs;
+	}
+	inOutGen = gen;
+	return true;
 }
 
-const NodeDef* FindDef(const char* type)
+bool HasDefs()
 {
-	if (!type) return nullptr;
-	for (const auto& d : s_defs)
-		if (d.type == type) return &d;
-	return nullptr;
-}
-
-Graph& Editing()
-{
-	return s_editing;
+	std::lock_guard<std::mutex> lk(s_mutex);
+	return !s_defs.empty();
 }
 
 void RequestGraph(const char* id)
@@ -252,10 +305,20 @@ void RequestGraph(const char* id)
 	if (!id || !*id) return;
 	{
 		std::lock_guard<std::mutex> lk(s_mutex);
-		s_editing = Graph{};
-		s_editing.id = id;
+		s_incoming = Graph{};
+		s_incomingReady = false;
 	}
 	IpcBridge_EmitVisualScriptEvent("vsGet", id);
+}
+
+bool TakeIncomingGraph(Graph& out)
+{
+	std::lock_guard<std::mutex> lk(s_mutex);
+	if (!s_incomingReady) return false;
+	out = std::move(s_incoming);
+	s_incoming = Graph{};
+	s_incomingReady = false;
+	return true;
 }
 
 std::string Serialize(const Graph& g)
@@ -276,14 +339,10 @@ std::string Serialize(const Graph& g)
 	return out;
 }
 
-void SaveEditing()
+void SaveGraph(const Graph& g)
 {
-	std::string payload;
-	{
-		std::lock_guard<std::mutex> lk(s_mutex);
-		if (s_editing.id.empty()) return;
-		payload = s_editing.id + "\n" + Serialize(s_editing);
-	}
+	if (g.id.empty()) return;
+	const std::string payload = g.id + "\n" + Serialize(g);
 	IpcBridge_EmitVisualScriptEvent("vsSave", payload.c_str());
 }
 

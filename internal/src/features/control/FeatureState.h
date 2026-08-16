@@ -28,12 +28,6 @@ void    SetAutoDodgeHitboxPadding(float paddingTiles);
 bool    GetAutoDodgeWallAvoid();
 void    SetAutoDodgeWallAvoid(bool enabled);
 
-bool    GetAutoAbilityEnabled();
-void    SetAutoAbilityEnabled(bool enabled);
-float   GetAutoAbilityMpPct();
-void    SetAutoAbilityMpPct(float pctZeroTo100);
-int     GetAutoAbilityItemType();
-void    SetAutoAbilityItemType(int itemType);
 
 float   GetWalkTargetX();
 float   GetWalkTargetY();

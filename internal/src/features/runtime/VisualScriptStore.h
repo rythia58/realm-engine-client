@@ -1,7 +1,11 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
+
+// Apply* run on the IPC thread, everything else on the render thread. Nothing
+// here returns a reference into shared state.
 
 namespace VisualScriptStore {
 
@@ -66,16 +70,20 @@ void ApplyList(const char* spec);
 void ApplyDefs(const char* spec);
 void ApplyGraph(const char* spec);
 
-// Reassembles "target|index|total|data" pieces, then dispatches to the Apply* above.
+// Reassembles "target|index|total|data" pieces. Streams may interleave.
 void ApplyChunk(const char* spec);
 
 void CopyList(std::vector<ScriptEntry>& out);
-const std::vector<NodeDef>& Defs();
-const NodeDef* FindDef(const char* type);
 
-Graph& Editing();
+// Copies only when the catalogue changed since `inOutGen`.
+bool CopyDefsIfChanged(std::vector<NodeDef>& out, uint32_t& inOutGen);
+bool HasDefs();
+
+// The reply lands in a pending slot; TakeIncomingGraph transfers ownership.
 void RequestGraph(const char* id);
-void SaveEditing();
+bool TakeIncomingGraph(Graph& out);
+
+void SaveGraph(const Graph& g);
 
 std::string Serialize(const Graph& g);
 
