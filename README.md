@@ -1,130 +1,166 @@
-  # Realm Engine — Free Open-Source RotMG Hacks, Client & SDK
+# Realm Engine — RotMG Client, DLL & SDK
 
-  [![Website](https://img.shields.io/badge/site-realmengine.org-14b8a6)](https://realmengine.org)
-  [![Discord](https://img.shields.io/badge/discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/uEKPPWz9k4)
-  [![License](https://img.shields.io/badge/license-Open%20Source-14b8a6)](LICENSE)
-  [![Platform](https://img.shields.io/badge/platform-Windows%20x64-0d9488)](https://realmengine.org/download)
-  [![Stars](https://img.shields.io/github/stars/Evergreen-Techworks/realm-engine-client?style=social)](https://github.com/Evergreen-Techworks/realm-engine-client/stargazers)
-  [![Buy Me A Coffee](https://img.shields.io/badge/buy_me_a_coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/egtw)
+[![Platform](https://img.shields.io/badge/platform-Windows%20x64-0d9488)](#requirements)
+[![License](https://img.shields.io/badge/license-MIT-14b8a6)](LICENSE)
 
-  **Realm Engine** is the free, open-source hacking platform for **Realm of the Mad God (RotMG / Exalt)**. Autonexus, WASD autododge, cursor autoaim, autoloot, advanced pathfinding, tile spoofing, hack builder — every line on GitHub. No subscription, no gem grind, no paywall.
+A fork of [Realm Engine](https://github.com/Evergreen-Techworks/realm-engine-client) — the open-source
+automation platform for **Realm of the Mad God (Exalt)**. Three parts: an Electron
+client that MITM-proxies the game, a C++ IL2CPP DLL injected into the process, and a
+TypeScript SDK for writing your own plugins.
 
-  > **TL;DR:** A full RotMG hack stack — Electron client, IL2CPP DLL injector, and TypeScript SDK — published free and open source. Clone it, fork it, sell your own builds.
+> **Credit:** Realm Engine was created by **[Evergreen-Techworks](https://github.com/Evergreen-Techworks)**
+> and its contributors, and remains MIT-licensed to them. This fork tracks upstream and adds
+> its own fixes on top. Original project: [realmengine.org](https://realmengine.org).
 
-  🌐 **Site:** [realmengine.org](https://realmengine.org)  ·  💬 **Discord:** [discord.gg/CGuYyTbf](https://discord.gg/uEKPPWz9k4)  ·  ⬇️ **Download:** [realmengine.org/download](https://realmengine.org/download)
+---
 
-  ---
+## Requirements
 
-  ## ✨ Features
+- **Windows x64.** The client is Electron; the injector is a native Win32 DLL. No macOS/Linux/Wine.
+- **Node.js 20+** and **npm**
+- **Visual Studio 2022 Build Tools**, toolset `v145`, for the DLL
+- IL2CPP headers for your current Exalt build in `internal/src/game/generated/` — not committed, see [SETUP.md](./SETUP.md)
 
-  ### Combat
-  - **Autonexus** — pulls you out the instant a fight turns lethal
-  - **WASD Autododge** — movement-aware dodge logic for cleaner projectile avoidance
-  - **Cursor Autoaim** — locks aim on target while you move
-  - **Damage Sniffer** — live damage readout for you and nearby players on bosses
+---
 
-  ### Movement
-  - **Advanced Pathfinding** — smooth, reliable routing
-  - **Tile Spoofing** — stops push tiles from yanking you off course
-  - **Auto Kill Gods** — clear godlands for steady fame and loot
-  - **Quick Travel** — get where you're going without the busywork
+## Repository layout
 
-  ### Hacks & Tools
-  - **Hack Builder + Behavior Tab** — visual triggers, conditions, and actions, no code required
-  - **Autoloot** — rules for tiers, gear categories, and consumables
-  - **TypeScript SDK** — write your own hacks against a typed API
+| Path | What it is |
+|---|---|
+| [`client/`](./client) | Electron app: MITM proxy, plugin host, dashboard on `localhost:4440` |
+| [`client/plugins/`](./client/plugins) | First-party plugins (27), TypeScript, richer internal API |
+| [`client/packages/sdk/`](./client/packages/sdk) | `@realmengine/sdk` — stable surface for community plugins |
+| [`internal/`](./internal) | C++ IL2CPP injector producing `version.dll` |
+| [`internal/tools/re-mcp/`](./internal/tools/re-mcp) | MCP server for runtime-testing the live DLL |
+| [`sdk/`](./sdk) | Docs stub — the package itself lives under `client/packages/sdk` |
 
-  ### Developer tooling
-  - **RotMG MCP server** — an [MCP](https://modelcontextprotocol.io) server (`internal/tools/re-mcp`) that lets an MCP client (e.g. Claude) **runtime-test the live DLL**: read BootGate / offset-recovery state, resolve IL2CPP classes & field offsets on demand, and watch the dodge engine's decisions. Opt-in: toggle the diagnostics bridge in the in-game **Test** tab, then approve the bundled `.mcp.json`. See [`internal/tools/re-mcp/README.md`](./internal/tools/re-mcp/README.md).
+### Inside `internal/src/`
 
-  ---
+```
+bootstrap/   DllMain, Run(), version.dll proxy exports
+core/        config, il2cpp, ipc, logging, runtime, security
+features/    account, combat, control, loot, misc, movement,
+             projectiles, runtime, visuals
+game/        generated headers, math, BeeByte symbol map
+gui/         ImGui overlay — Theme.cpp + tabs/
+platform/    dx11 + hooks (Detours / MinHook)
+```
 
-  ## 🧱 Repository layout
+---
 
-  ### [`client/`](./client) — Electron desktop client (`realm-engine`)
-  RotMG Exalt MITM proxy + automation dashboard. Windows-targeted Electron app that talks to the game, runs the hacks, and hosts the UI. Built with `electron-builder` (`npm run dist`, `dist:installer`, `dist:portable`) and includes a native module step (`npm run build:native`).
+## Building
 
-  ### [`internal/`](./internal) — C++ IL2CPP DLL injection
-  Native side. Visual Studio 2022 solution (`il2cpp-dll-injection.sln`) that produces `version.dll` — a Windows DLL that hijacks the real `version.dll` for auto-load at game launch, hooks IL2CPP methods, and detours `IDXGISwapChain::Present` for the in-game overlay. Output goes
-  to `x64/Release/`.
+### Client
 
-  ### [`sdk/`](./sdk) — TypeScript script-development kit (`@realmengine/sdk`)
-  The typed surface that hack authors write against. `npm run build` produces the package; consume it from your own script project, then drop the compiled output into the client's plugin folder.
+```bash
+cd client
+npm install
+npm run dev          # dev server: proxy on 2050, dashboard on 4440
+npm run build        # sdk + tsc typecheck
+npm run dist         # Windows installer via electron-builder
+```
 
-  ---
+### DLL
 
-  ## 🚀 Quick Start
+```bash
+cd internal
+msbuild il2cpp-dll-injection.sln -p:Configuration=Debug -p:Platform=x64 -m
+```
 
-  **Run the desktop client (no build required):**
-  👉 [realmengine.org/download](https://realmengine.org/download)
+Two things that trip people up:
 
-  **Build the client from source (Windows):**
-  ```bash
-  git clone https://github.com/Evergreen-Techworks/realm-engine-client.git
-  cd realm-engine-client/client
-  npm install
-  npm run dev       # dev mode
-  npm run dist      # production installer build
-  ```
+- **The DLL does not land in `x64/Debug/`.** The project copies it straight to
+  `client/assets/version.dll`, and the client deploys it into the Exalt install on
+  startup. The game must be closed or the copy silently no-ops.
+- **Release needs `internal/src/core/ipc/BuildSecrets.h`** (gitignored). It defines
+  `BUILD_HANDSHAKE_KEY` and `BUILD_PIPE_NAME`; Debug falls back to dev defaults.
+  The pipe name needs four backslashes per separator — `"\\\\.\\pipe\\..."` — because
+  `\p` and `\l` are invalid C++ escapes that silently collapse, producing a
+  plausible-looking but wrong pipe name and a bridge that never connects.
 
-  **Build the native DLL (Visual Studio 2022, toolset v145):**
-  ```bash
-  cd internal
-  msbuild il2cpp-dll-injection.sln /p:Configuration=Release /p:Platform=x64
-  # output: x64/Release/version.dll
-  ```
+### Dev loop
 
-  **Build the SDK:**
-  ```bash
-  cd sdk
-  npm install
-  npm run build
-  ```
+```powershell
+Get-Process node,electron,"RotMG Exalt" | Stop-Process -Force
+Remove-Item .\client\assets\internal.bin -Force -ErrorAction SilentlyContinue
+# rebuild the DLL, then:
+cd client; npm run dev
+```
 
-  ---
+Verify the deployed DLL matches what you built — a Release build left in
+`client/assets/` after a Debug build is an easy hour to lose.
 
-  ## ❓ FAQ
+---
 
-  **Wait — it's actually free?**
-  Yes. Engine, client, every hack. No subscription, no gem economy, no trial that turns into a bill.
+## How it fits together
 
-  **Why is Realm Engine open source?**
-  The RotMG hacking scene gets better when the tools aren't held hostage. Raising the floor beats hoarding a moat.
+The client owns game state and decisions; the DLL owns memory reads, hooks and the
+in-game overlay. They talk over a named pipe (`\\.\pipe\lfg-dev-bridge`) with an
+HMAC handshake, sequence numbers and heartbeats — the DLL is the client, Node is
+the server.
 
-  **Can I sell hacks I build on top of this?**
-  Yes. Fork it, build on it, charge for your own work. Just don't claim you wrote the parts you didn't.
+```
+RotMG Exalt ──► winhttp.dll ──► 127.0.0.1:2050 (client proxy) ──► server
+     │
+     └─ version.dll ──named pipe──► client
+```
 
-  **What OS is supported?**
-  Windows x64 only. The client is Electron; the injection layer is a native Win32 DLL. macOS / Linux / Wine are not supported.
+The overlay opens with **Insert** and carries nine tabs: Plugins, Scripts, Combat,
+Player, Camera, Visuals, World, Test, UI. The tab array in
+`platform/hooks/DirectX.cpp` is the single source of truth for their order.
 
-  **How do I report a bug or request a feature?**
-  Open an issue here or hop into the [Discord](https://discord.gg/CGuYyTbf) — bug reports and feature requests are triaged there.
+---
 
-  ---
+## Features
 
-  ## 🤝 Contributing
+**Combat** — Autonexus with a predictive HP model, autoaim, auto-ability, auto-drink,
+ghost-hit detection, damage sniffer.
 
-  PRs welcome. Pick an open issue, ship a hack, or rewrite something better.
+**Movement** — seven auto-dodge engines selectable at runtime (XDodge spacetime BFS,
+RE-Sim grid/quadtree, zDodge, RE++, PJDodge, RDodge), pathfinding, noclip, speed hack,
+push-tile spoofing, collider tuning.
 
-  ---
+**Automation** — autoloot with tier/category rules, auto-follow, O3 helper, server
+switching, packet logging, lag switch.
 
-  ## 🔗 Related
+**Scripting** — two surfaces: TypeScript plugins against `@realmengine/sdk`, and a
+42-node visual scripting system with editors in *both* the dashboard and the in-game
+Scripts tab, sharing one graph format.
 
-  - **Website & web app:** [realmengine.org](https://realmengine.org)
-  - **Discord community:** [discord.gg/CGuYyTbf](https://discord.gg/CGuYyTbf)
-  - **Lore / origin story:** [realmengine.org/lore](https://realmengine.org/lore)
+---
 
-  ---
+## Runtime offsets
 
-  ## 📄 License
+`core/runtime/RuntimeOffsets.{h,cpp}` is a table-driven, self-healing field-offset
+registry. Every offset ships with a last-known-good fallback; `EnsureAll()` re-resolves
+each entry per frame by BeeByte-obfuscated class and field name, and anything that
+fails to resolve inside 5 seconds is flagged in **Test → OFFSET HEALTH**
+(yellow = stale, red = reading garbage).
 
-  Open source. See [LICENSE](LICENSE) for details.
+**When Exalt patches, this table is the first thing to check.** See
+[`internal/docs/UPDATING_AFTER_GAME_PATCH.md`](./internal/docs/UPDATING_AFTER_GAME_PATCH.md).
 
-  ---
+---
 
-  <details>
-  <summary><strong>Keywords (for search indexing)</strong></summary>
+## Known gaps
 
-  realm engine, realm engine rotmg, rotmg hacks, rotmg cheats, rotmg mods, rotmg hack client, rotmg mod client, realm of the mad god hacks, realm of the mad god mods, open source rotmg, rotmg autonexus, rotmg autododge, rotmg autoloot, rotmg pathfinding, rotmg hack builder, exalt
-   hacks, exalt mods, IL2CPP injection, RotMG, RotMG Exalt, mcp, rotmg mcp, realm of the mad god mcp, realm engine mcp, model context protocol, mcp server, rotmg mcp server, claude mcp, rotmg diagnostics, il2cpp mcp, game mcp server
-  </details>
+- **AoE tracking runs at 3/4 coverage.** The three spawn hooks resolve; the ShowEffect
+  handler symbol (`CGBILOJJPEI`) no longer exists in the current dump and
+  `HJMBOMEHGDJ` is now MapViewService. Telegraph-only AoEs are missed. Surfaced in the
+  Combat readout rather than failing silently.
+- **Bullet-ID resolution is unconfirmed.** The DLL publishes both `attackerObjId` and
+  `ownerObjId`; the client tries each against the ENEMYSHOOT-keyed tracker and logs the
+  real match rate once per session.
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md). Upstream issues and discussion live on the
+[original project](https://github.com/Evergreen-Techworks/realm-engine-client).
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE). Copyright © Evergreen-Techworks and contributors.
