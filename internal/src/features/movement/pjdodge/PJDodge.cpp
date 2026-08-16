@@ -97,6 +97,7 @@ void SetEnabled(bool enabled)
 }
 
 bool IsEnabled() { return g_enabled.load(std::memory_order_relaxed); }
+bool IsSteering() { return g_enabled.load(std::memory_order_relaxed) && g_out.overrideActive; }
 
 void OnEnter()
 {

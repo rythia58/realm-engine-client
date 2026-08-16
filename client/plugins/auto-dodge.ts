@@ -55,7 +55,7 @@ export function register(ctx: PluginContext) {
   ctx.registerSetting('dodgeMode', {
     label: 'Dodge mode',
     type: 'select',
-    value: 'xdodge',
+    value: 'pj-dodge',
     options: [
       { label: 'Off', value: 'off' },
       { label: 'RE-Plus', value: 'xdodge' },

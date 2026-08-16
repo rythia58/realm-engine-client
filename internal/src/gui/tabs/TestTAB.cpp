@@ -586,8 +586,10 @@ static void MovePlayer(float targetWorldX, float targetWorldY, float dt,
     // A frame hitch would otherwise produce one huge step the server rejects
     // (rubber-band), and running at exactly max speed leaves no slack for
     // latency — hold slightly under and cap the per-frame delta.
+    // The dt clamp is what actually prevents a post-hitch step the server
+    // rejects; the old blanket 0.90 just made every walk 10% slow on top of it.
     constexpr float kMaxMoveDt   = 0.05f;
-    constexpr float kSpeedSafety = 0.90f;
+    constexpr float kSpeedSafety = 0.98f;
     const float stepDt = (dt > kMaxMoveDt) ? kMaxMoveDt : dt;
 
     float maxStep = tps * stepDt * speedMult * kSpeedSafety;
@@ -656,6 +658,20 @@ static void MovePlayer(float targetWorldX, float targetWorldY, float dt,
 // Walk-to gate diagnostics. g_walkActive is driven off GameState::GetLocalPtr(),
 // but movement needs WorldTAB's cached pointer; if those disagree the target line
 // draws and nothing moves. Kept out of Tick() -- __try there forbids unwindable objects.
+// Is the ACTIVE dodge mode actually commanding movement right now? None of the
+// dodge modes are long-range navigators -- XDodge plans in a 5 tile grid, and
+// RePP/PJDodge ignore the external goal entirely -- so Walk-To has to drive
+// unless one of them is mid-manoeuvre.
+static bool ActiveDodgeIsSteering()
+{
+    switch (TestTAB::GetDodgeMode()) {
+        case DodgeMode::XDodge:  return XDodge::IsSteering();
+        case DodgeMode::RePP:    return RePP::IsSteering();
+        case DodgeMode::PJDodge: return PJDodge::IsSteering();
+        default:                 return false;
+    }
+}
+
 static void LogWalkGate(bool dodgeMoved, bool dodgeHandlesNav, bool worldPtr,
                         bool gamePtr, float wx, float wy, float camX, float camY)
 {
@@ -669,8 +685,8 @@ static void LogWalkGate(bool dodgeMoved, bool dodgeHandlesNav, bool worldPtr,
     const ULONGLONG now = GetTickCount64();
     if (now - s_last < 1000ULL) return;
     s_last = now;
-    DBG_FILE_LOG("[WalkTo] steering=" << (int)XDodge::IsSteering()
-        << " radius=" << XDodge::GetSearchRadius()
+    DBG_FILE_LOG("[WalkTo] mode=" << (int)TestTAB::GetDodgeMode()
+        << " steering=" << (int)ActiveDodgeIsSteering()
         << " dodgeMoved=" << (int)dodgeMoved
         << " dodgeHandlesNav=" << (int)dodgeHandlesNav
         << " worldLocalPtr=" << (int)worldPtr
@@ -905,17 +921,11 @@ void TestTAB::Tick(bool menuVisible)
     {
         bool active = false;
 
-        // The dodge planners work inside a ~5 tile grid (XDodge kRad*kCell), so a
-        // walk target past that is beyond anything they can route to. Enabling a
-        // dodge mode used to hand them ALL navigation, which silently killed
-        // long-range Walk-To. Give it back unless dodge is actively steering.
-        bool dodgeOwnsNav = true;
-        if (g_walkActive && localPlayer) {
-            const float gdx = g_walkX - camX;
-            const float gdy = g_walkY - camY;
-            if (sqrtf(gdx * gdx + gdy * gdy) > XDodge::GetSearchRadius() && !XDodge::IsSteering())
-                dodgeOwnsNav = false;
-        }
+        // While a walk target is set, dodge may only take the wheel when it is
+        // actually steering around a threat. Gating on distance instead left a
+        // dead zone inside the planner radius: the player stopped short of the
+        // target and dodge, having nothing to dodge, never moved it the rest.
+        const bool dodgeOwnsNav = (g_walkActive && localPlayer) ? ActiveDodgeIsSteering() : true;
 
         if (localPlayer && IsAnyAutoDodgeEnabled()) {
             // XDodge runs from Detour_AppEngineUpdate — install the hook lazily.
