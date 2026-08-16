@@ -15,6 +15,10 @@ namespace XDodge {
 void SetEnabled(bool en);
 bool IsEnabled();
 
+// True only while a live plan is committed (i.e. actually steering around a
+// threat). False when standing still is safe, so callers can reclaim navigation.
+bool IsSteering();
+
 // Called when entering XDodge mode.
 void OnEnter();
 
