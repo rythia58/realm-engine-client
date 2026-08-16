@@ -8,6 +8,7 @@
 #include "DbgFileLog.h"
 #include "RePP.h"
 #include "PJDodge.h"
+#include "RDodge.h"
 #include "settings.h"
 
 #include <Windows.h>
@@ -266,7 +267,9 @@ void WriteSnapshot(const char* dir) {
 
     const bool inWorld = LocalPlayer::GetPtr() != nullptr;
 
-    char buf[4096];
+    // 8 KB: bootgate anchors + the four dodge-engine blocks together overrun 4 KB,
+    // and each block is skipped (silently) when the remaining headroom is short.
+    char buf[8192];
     int len = snprintf(buf, sizeof(buf),
         "{\n"
         "  \"seq\": %llu,\n"
@@ -327,6 +330,25 @@ void WriteSnapshot(const char* dir) {
             pv.projectiles, pv.aoes, pv.enemies,
             pv.predEnabled ? "true" : "false", pv.predCalibrated, pv.predClockErrMs,
             pv.predModelErrTiles, pv.predModelMaxTiles);
+
+    // ── Rdodge internals ─────────────────────────────────────────────────────
+    const RDodge::DiagView rv = RDodge::GetDiagView();
+    if (len > 0 && len < static_cast<int>(sizeof(buf)) - 600)
+        len += snprintf(buf + len, sizeof(buf) - len,
+            "  ,\"rdodge\": { \"enabled\": %s, \"decision\": %d, \"override\": %s,\n"
+            "    \"player\": { \"x\": %.2f, \"y\": %.2f },\n"
+            "    \"selectedTarget\": %s, \"selX\": %.2f, \"selY\": %.2f,\n"
+            "    \"threats\": %d, \"blockers\": %d, \"candidates\": %d,\n"
+            "    \"currentSafeMs\": %.0f, \"requestedSafeMs\": %.0f,\n"
+            "    \"goal\": { \"active\": %s, \"x\": %.2f, \"y\": %.2f, \"dist\": %.2f, \"driving\": %s } }\n",
+            rv.enabled ? "true" : "false", rv.decision,
+            rv.overrideActive ? "true" : "false",
+            rv.playerX, rv.playerY,
+            rv.hasSelectedTarget ? "true" : "false", rv.selX, rv.selY,
+            rv.threatCount, rv.blockerCount, rv.candidateCount,
+            rv.currentSafeMs, rv.requestedSafeMs,
+            rv.goalActive ? "true" : "false", rv.goalX, rv.goalY, rv.goalDist,
+            rv.goalDriving ? "true" : "false");
 
     if (len > 0 && len < static_cast<int>(sizeof(buf)) - 8)
         len += snprintf(buf + len, sizeof(buf) - len, "}\n");

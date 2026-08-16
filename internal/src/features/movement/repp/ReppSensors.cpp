@@ -46,8 +46,14 @@ float SafeReactWindowMs(float value)
     return std::clamp(value, 100.f, 2500.f);
 }
 
+// Chebyshev half-extent T of the bullet — the value the game's own IsHit test
+// compares against. Prefer the LIVE runtime field (HBEAKBIHANL+0x1D4) exactly
+// like PJDodgeSensors and ProjectileCatalog do; `projHalfSize` is the derived
+// reconstruction and only stands in when the runtime read came back unset.
 float ProjectileRadius(const WorldProjectile& p, float fallback)
 {
+    if (IsFinite(p.runtimeChebyshevHalf) && p.runtimeChebyshevHalf > 0.005f && p.runtimeChebyshevHalf < 2.f)
+        return SafeRadius(p.runtimeChebyshevHalf, fallback);
     if (IsFinite(p.projHalfSize) && p.projHalfSize > 0.005f && p.projHalfSize < 2.f)
         return SafeRadius(p.projHalfSize, fallback);
     return fallback;

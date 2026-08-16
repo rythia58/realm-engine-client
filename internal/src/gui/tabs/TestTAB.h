@@ -15,6 +15,7 @@ enum class DodgeMode : int {
     ZDodge      = 4,  // Intent-preserving slide-assist dodge (zdodge).
     RePP        = 5,  // RE++ next-gen reactive dodge (repp).
     PJDodge     = 6,  // Predictive controller + escape search (pjdodge).
+    RDodge      = 7,  // Hard-override ring-sampling survival dodge (rdodge), external-goal driveable.
 };
 
 DodgeMode GetDodgeMode();

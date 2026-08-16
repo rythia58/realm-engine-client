@@ -26,6 +26,7 @@
 #include "ZDodge.h"
 #include "RePP.h"
 #include "PJDodge.h"
+#include "RDodge.h"
 #include "SpeedHack.h"
 #include <string>
 #include <cctype>
@@ -232,6 +233,25 @@ namespace {
         return ApplyFeatureTable(f, h, sizeof(h) / sizeof(h[0]));
     }
 
+    bool ApplyRDodgeFeature(const FeatureCommand& f)
+    {
+        static const FeatureHandler h[] = {
+            FH_FLOAT("rdodgeReactWindowMs", RDodge::SetReactWindowMs),
+            FH_FLOAT("rdodgeHitScale", RDodge::SetHitScale),
+            FH_FLOAT("rdodgeHitPad", RDodge::SetHitPadTiles),
+            FH_FLOAT("rdodgeMaxMoveTiles", RDodge::SetMaxMoveTiles),
+            FH_FLOAT("rdodgeEnemyAvoid", RDodge::SetEnemyAvoid),
+            FH_FLOAT("rdodgeGoalArriveTiles", RDodge::SetGoalArriveTiles),
+            FH_INT_BOOL("rdodgeAvoidEnemies", RDodge::SetAvoidEnemies),
+            FH_INT_BOOL("rdodgeAvoidHazards", RDodge::SetAvoidHazards),
+            FH_INT_BOOL("rdodgeCommitDwell", RDodge::SetCommitDwell),
+            FH_INT_BOOL("rdodgeGoalFollow", RDodge::SetGoalFollow),
+            FH_INT_BOOL("rdodgeDebugOverlay", RDodge::SetDebugOverlay),
+            FH_INT_BOOL("rdodgeTrace", RDodge::SetTrace)
+        };
+        return ApplyFeatureTable(f, h, sizeof(h) / sizeof(h[0]));
+    }
+
     bool ApplyInputCameraSkinFeature(const FeatureCommand& f)
     {
         static const FeatureHandler h[] = {
@@ -307,6 +327,7 @@ namespace FeatureCommandRegistry {
         if (ApplyZDodgeFeature(feature)) return true;
         if (ApplyReppFeature(feature)) return true;
         if (ApplyPJDodgeFeature(feature)) return true;
+        if (ApplyRDodgeFeature(feature)) return true;
         if (ApplyRolloutFeature(feature)) return true;
         if (ApplyInputCameraSkinFeature(feature)) return true;
         if (ApplyAutoNexusFeature(feature)) return true;
